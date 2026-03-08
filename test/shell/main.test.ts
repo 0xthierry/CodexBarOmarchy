@@ -6,11 +6,21 @@ test("starts a shell session that wires tray clicks to popup toggling", async ()
   let visible = false;
   let trayClickListener: (() => void) | undefined;
   let initialized = false;
+  let ipcHandlersRegistered = false;
+  let popupLoaded = false;
   let removedHandlers = 0;
 
   const session = await startShellSession({
     appStore: {
-      getProviderView: () => createState().providerViews[0] as AppStoreState["providerViews"][number],
+      getProviderView: () => {
+        const providerView = createState().providerViews[0];
+
+        if (providerView === undefined) {
+          throw new Error("Expected at least one provider view.");
+        }
+
+        return providerView;
+      },
       getState: () => createState(),
       initialize: async () => {
         initialized = true;
@@ -57,39 +67,46 @@ test("starts a shell session that wires tray clicks to popup toggling", async ()
       setProviderOrder: async () => createState(),
       startRefreshScheduler: () => createState(),
       stopRefreshScheduler: () => createState(),
-      subscribe: () => () => undefined,
+      subscribe: () => () => {},
     },
-    createPopupWindow: async () => ({
-      center: () => undefined,
-      focus: () => undefined,
+    createPopupWindow: () => ({
+      center: () => {},
+      focus: () => {},
       hide: () => {
         visible = false;
       },
       isVisible: () => visible,
-      loadFile: async () => undefined,
-      on: () => undefined,
+      loadFile: async () => {},
+      on: () => {},
       show: () => {
         visible = true;
       },
       webContents: {
-        send: () => undefined,
+        send: () => {},
       },
     }),
     createTray: () => ({
       on: (_eventName, listener) => {
         trayClickListener = listener;
       },
-      setToolTip: () => undefined,
+      setToolTip: () => {},
     }),
     ipcMain: {
-      handle: () => undefined,
+      handle: () => {
+        ipcHandlersRegistered = true;
+      },
       removeHandler: () => {
         removedHandlers += 1;
       },
     },
+    loadPopupWindow: async () => {
+      expect(ipcHandlersRegistered).toBe(true);
+      popupLoaded = true;
+    },
   });
 
   expect(initialized).toBe(true);
+  expect(popupLoaded).toBe(true);
   expect(visible).toBe(false);
 
   const firstClickListener = trayClickListener;

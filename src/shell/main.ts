@@ -10,7 +10,7 @@ import { createRuntimeProviderAdapters } from "@/runtime/provider-adapters.ts";
 import { createRuntimeHost } from "@/shell/runtime-host.ts";
 import { startShellSession } from "@/shell/session.ts";
 import type { ShellSession } from "@/shell/session.ts";
-import { createPopupWindow } from "@/shell/window.ts";
+import { createPopupWindow, loadPopupWindowContent } from "@/shell/window.ts";
 import type { BrowserWindowConstructorLike } from "@/shell/window.ts";
 
 const startupFailureExitCode = 1;
@@ -39,11 +39,12 @@ const startShell = (): Promise<ShellSession> => {
     createPopupWindow: () =>
       createPopupWindow(
         BrowserWindow as unknown as BrowserWindowConstructorLike,
-        join(distDirectoryPath, "ui", "index.html"),
         join(shellDirectoryPath, "preload.cjs"),
       ),
     createTray: createElectronTray,
     ipcMain,
+    loadPopupWindow: async (popupWindow) =>
+      await loadPopupWindowContent(popupWindow, join(distDirectoryPath, "ui", "index.html")),
   });
 };
 

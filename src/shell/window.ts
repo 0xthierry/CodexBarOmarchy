@@ -54,19 +54,24 @@ const createPopupWindowOptions = (preloadPath: string): BrowserWindowConstructor
   width: popupWidth,
 });
 
-const createPopupWindow = async (
+const createPopupWindow = (
   BrowserWindowClass: BrowserWindowConstructorLike,
-  filePath: string,
   preloadPath: string,
-): Promise<PopupWindowLike> => {
+): PopupWindowLike => {
   const popupWindow = new BrowserWindowClass(createPopupWindowOptions(preloadPath));
 
   popupWindow.on("blur", () => {
     popupWindow.hide();
   });
-  await popupWindow.loadFile(filePath);
 
   return popupWindow;
+};
+
+const loadPopupWindowContent = async (
+  popupWindow: PopupWindowLike,
+  filePath: string,
+): Promise<void> => {
+  await popupWindow.loadFile(filePath);
 };
 
 const createPopupController = (popupWindow: PopupControllerWindowLike): PopupController => ({
@@ -99,6 +104,7 @@ export {
   createPopupController,
   createPopupWindow,
   createPopupWindowOptions,
+  loadPopupWindowContent,
   type BrowserWindowConstructorLike,
   type PopupController,
   type PopupWindowLike,

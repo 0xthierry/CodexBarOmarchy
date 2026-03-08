@@ -8,8 +8,11 @@ import type {
   OmarchyBarBridge,
   ProviderId,
 } from "@/shell/bridge.ts";
-
-const defaultSchedulerIntervalMs = 300_000;
+import {
+  defaultRefreshSchedulerIntervalMs,
+  minimumRefreshSchedulerIntervalMs,
+  normalizeRefreshSchedulerIntervalMs,
+} from "@/core/store/scheduler.ts";
 const providerIds = ["codex", "claude", "gemini"] as const;
 
 type ClaudeTokenAction = "open" | "reload" | "remove";
@@ -32,7 +35,9 @@ const formatOptionalValue = (value: string | null): string => {
   return escapeHtml(value);
 };
 
-const renderMetricRows = (metrics: AppStoreState["providerViews"][number]["status"]["metrics"]): string => {
+const renderMetricRows = (
+  metrics: AppStoreState["providerViews"][number]["status"]["metrics"],
+): string => {
   if (metrics.length === 0) {
     return '<p class="empty">No metrics loaded yet.</p>';
   }
@@ -82,7 +87,9 @@ const renderProviderManagement = (state: AppStoreState): string =>
     })
     .join("");
 
-const renderCodexSettings = (providerView: Extract<AppStoreState["providerViews"][number], { id: "codex" }>): string => `
+const renderCodexSettings = (
+  providerView: Extract<AppStoreState["providerViews"][number], { id: "codex" }>,
+): string => `
   <label>
     Usage source
     <select data-provider-config="codex" data-config-key="source">
@@ -141,7 +148,9 @@ const renderCodexSettings = (providerView: Extract<AppStoreState["providerViews"
   </label>
 `;
 
-const renderClaudeSettings = (providerView: Extract<AppStoreState["providerViews"][number], { id: "claude" }>): string => `
+const renderClaudeSettings = (
+  providerView: Extract<AppStoreState["providerViews"][number], { id: "claude" }>,
+): string => `
   <label>
     Usage source
     <select data-provider-config="claude" data-config-key="source">
@@ -275,10 +284,26 @@ const renderProviderCard = (providerView: AppStoreState["providerViews"][number]
   </section>
 `;
 
+const getEnabledProviderViews = (state: AppStoreState): AppStoreState["providerViews"] =>
+  state.enabledProviderIds.flatMap((providerId) => {
+    const providerView = state.providerViews.find((candidate) => candidate.id === providerId);
+
+    return providerView === undefined ? [] : [providerView];
+  });
+
+const getSelectedProviderView = (
+  state: AppStoreState,
+): AppStoreState["providerViews"][number] | undefined => {
+  const enabledProviderViews = getEnabledProviderViews(state);
+
+  return (
+    enabledProviderViews.find((providerView) => providerView.id === state.selectedProviderId) ??
+    enabledProviderViews[0]
+  );
+};
+
 const renderAppMarkup = (state: AppStoreState): string => {
-  const selectedProviderView =
-    state.providerViews.find((providerView) => providerView.id === state.selectedProviderId) ??
-    state.providerViews[0];
+  const selectedProviderView = getSelectedProviderView(state);
   const switcherMarkup = state.enabledProviderIds
     .map(
       (providerId) => `
@@ -300,8 +325,8 @@ const renderAppMarkup = (state: AppStoreState): string => {
           <p>Tray overview for Codex, Claude, and Gemini.</p>
         </div>
         <div class="scheduler-controls">
-          <input id="scheduler-interval" min="60000" step="60000" type="number" value="${
-            state.scheduler.intervalMs ?? defaultSchedulerIntervalMs
+          <input id="scheduler-interval" min="${minimumRefreshSchedulerIntervalMs}" step="${minimumRefreshSchedulerIntervalMs}" type="number" value="${
+            state.scheduler.intervalMs ?? defaultRefreshSchedulerIntervalMs
           }" />
           <button data-scheduler-action="${state.scheduler.active ? "stop" : "start"}">
             ${state.scheduler.active ? "Stop refresh loop" : "Start refresh loop"}
@@ -309,7 +334,11 @@ const renderAppMarkup = (state: AppStoreState): string => {
         </div>
       </header>
       <nav class="provider-switcher">${switcherMarkup}</nav>
-      ${selectedProviderView === undefined ? '<p class="empty">No providers configured.</p>' : renderProviderCard(selectedProviderView)}
+      ${
+        selectedProviderView === undefined
+          ? '<p class="empty">No enabled providers. Enable a provider below to see its details.</p>'
+          : renderProviderCard(selectedProviderView)
+      }
       <section class="provider-management">
         <h3>Provider Order</h3>
         ${renderProviderManagement(state)}
@@ -330,10 +359,7 @@ const isSchedulerAction = (value: string | undefined): value is SchedulerAction 
 const isClaudeTokenAction = (value: string | undefined): value is ClaudeTokenAction =>
   value === "open" || value === "reload" || value === "remove";
 
-const getClosestElement = (
-  target: EventTarget | null,
-  selector: string,
-): HTMLElement | null => {
+const getClosestElement = (target: EventTarget | null, selector: string): HTMLElement | null => {
   if (!(target instanceof Element)) {
     return null;
   }
@@ -343,24 +369,26 @@ const getClosestElement = (
   return closestElement instanceof HTMLElement ? closestElement : null;
 };
 
-const createConfigUpdater = (bridge: OmarchyBarBridge) => async (
-  providerId: ProviderId,
-  patch: ClaudeConfigPatch | CodexConfigPatch | GeminiConfigPatch,
-): Promise<void> => {
-  if (providerId === "claude") {
-    await bridge.updateClaudeConfig(patch as ClaudeConfigPatch);
+const createConfigUpdater =
+  (bridge: OmarchyBarBridge) =>
+  async (
+    providerId: ProviderId,
+    patch: ClaudeConfigPatch | CodexConfigPatch | GeminiConfigPatch,
+  ): Promise<void> => {
+    if (providerId === "claude") {
+      await bridge.updateClaudeConfig(patch as ClaudeConfigPatch);
 
-    return;
-  }
+      return;
+    }
 
-  if (providerId === "codex") {
-    await bridge.updateCodexConfig(patch as CodexConfigPatch);
+    if (providerId === "codex") {
+      await bridge.updateCodexConfig(patch as CodexConfigPatch);
 
-    return;
-  }
+      return;
+    }
 
-  await bridge.updateGeminiConfig(patch as GeminiConfigPatch);
-};
+    await bridge.updateGeminiConfig(patch as GeminiConfigPatch);
+  };
 
 const createReorderedProviderIds = (
   providerOrder: ProviderId[],
@@ -437,7 +465,6 @@ const mountPopupApp = async (rootElement: HTMLElement, bridge: OmarchyBarBridge)
     const direction = moveProviderButton?.dataset["direction"];
 
     if (isProviderId(moveProviderId) && (direction === "down" || direction === "up")) {
-
       await bridge.setProviderOrder(
         createReorderedProviderIds(currentState.config.providerOrder, moveProviderId, direction),
       );
@@ -451,10 +478,11 @@ const mountPopupApp = async (rootElement: HTMLElement, bridge: OmarchyBarBridge)
     if (isSchedulerAction(schedulerAction)) {
       if (schedulerAction === "start") {
         const intervalInput = document.getElementById("scheduler-interval");
-        const intervalMs =
+        const intervalMs = normalizeRefreshSchedulerIntervalMs(
           intervalInput instanceof HTMLInputElement
             ? Number.parseInt(intervalInput.value, 10)
-            : defaultSchedulerIntervalMs;
+            : defaultRefreshSchedulerIntervalMs,
+        );
 
         await bridge.startRefreshScheduler(intervalMs);
 

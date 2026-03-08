@@ -22,21 +22,30 @@ interface ShellSession {
 
 interface StartShellSessionOptions {
   appStore: AppStore;
-  createPopupWindow: () => Promise<PopupWindowLike>;
+  createPopupWindow: () => PopupWindowLike;
   createTray: () => TrayLike;
   ipcMain: IpcMainLike;
+  loadPopupWindow: (popupWindow: PopupWindowLike) => Promise<void>;
 }
 
 const startShellSession = async (options: StartShellSessionOptions): Promise<ShellSession> => {
   await options.appStore.initialize();
 
-  const popupWindow = await options.createPopupWindow();
+  const popupWindow = options.createPopupWindow();
   const popupController = createPopupController(popupWindow);
   const tray = options.createTray();
+  const disposeIpc = registerStoreIpc(options.ipcMain, popupWindow.webContents, options.appStore);
 
   connectTrayToPopup(tray, popupController);
 
-  const disposeIpc = registerStoreIpc(options.ipcMain, popupWindow.webContents, options.appStore);
+  try {
+    await options.loadPopupWindow(popupWindow);
+  } catch (error) {
+    disposeIpc();
+    popupController.hide();
+    tray.destroy?.();
+    throw error;
+  }
 
   return {
     dispose: (): void => {

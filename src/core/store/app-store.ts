@@ -26,6 +26,7 @@ import {
   defaultSchedulerState,
   getProviderView,
 } from "@/core/store/state.ts";
+import { normalizeRefreshSchedulerIntervalMs } from "@/core/store/scheduler.ts";
 import type { SchedulerState } from "@/core/store/state.ts";
 import { createDefaultProviderRuntimeStateMap } from "@/core/store/runtime-state.ts";
 import type {
@@ -482,17 +483,19 @@ const createRefreshEnabledProviders =
 const createStartRefreshScheduler =
   (refreshEnabledProviders: () => Promise<RefreshActionResult[]>, runtime: AppStoreRuntime) =>
   (intervalMs: number): AppStoreState => {
+    const normalizedIntervalMs = normalizeRefreshSchedulerIntervalMs(intervalMs);
+
     if (runtime.schedulerHandle !== null) {
       globalThis.clearInterval(runtime.schedulerHandle);
     }
 
     runtime.schedulerHandle = globalThis.setInterval(() => {
       void refreshEnabledProviders();
-    }, intervalMs);
+    }, normalizedIntervalMs);
 
     return updateSchedulerState(runtime, {
       active: true,
-      intervalMs,
+      intervalMs: normalizedIntervalMs,
     });
   };
 

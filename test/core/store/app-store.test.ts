@@ -4,6 +4,10 @@ import { createSuccessfulProviderActionResult } from "@/core/actions/action-resu
 import { createRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { createAppStore } from "@/core/store/app-store.ts";
 import { createDefaultConfig } from "@/core/config/schema.ts";
+import {
+  defaultRefreshSchedulerIntervalMs,
+  minimumRefreshSchedulerIntervalMs,
+} from "@/core/store/scheduler.ts";
 
 const firstSavedConfigIndex = 0;
 const lastSavedConfigIndex = -1;
@@ -389,15 +393,31 @@ test("tracks scheduler state through explicit start and stop calls", async () =>
     intervalMs: null,
   });
 
-  appStore.startRefreshScheduler(15_000);
+  appStore.startRefreshScheduler(minimumRefreshSchedulerIntervalMs);
   expect(appStore.getState().scheduler).toEqual({
     active: true,
-    intervalMs: 15_000,
+    intervalMs: minimumRefreshSchedulerIntervalMs,
   });
 
   appStore.stopRefreshScheduler();
   expect(appStore.getState().scheduler).toEqual({
     active: false,
     intervalMs: null,
+  });
+});
+
+test("normalizes invalid scheduler intervals before scheduling", async () => {
+  const appStore = await createInitializedAppStore();
+
+  appStore.startRefreshScheduler(Number.NaN);
+  expect(appStore.getState().scheduler).toEqual({
+    active: true,
+    intervalMs: defaultRefreshSchedulerIntervalMs,
+  });
+
+  appStore.startRefreshScheduler(1000);
+  expect(appStore.getState().scheduler).toEqual({
+    active: true,
+    intervalMs: minimumRefreshSchedulerIntervalMs,
   });
 });
