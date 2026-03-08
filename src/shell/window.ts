@@ -1,6 +1,7 @@
 import type { AppStoreState } from "@/shell/bridge.ts";
 import type { BrowserWindowConstructorOptions } from "electron";
 
+const blurDismissArmingDelayMs = 250;
 const popupHeight = 640;
 const popupWidth = 420;
 
@@ -25,7 +26,7 @@ type BrowserWindowConstructorLike = new (
 
 type PopupControllerWindowLike = Pick<
   PopupWindowLike,
-  "center" | "focus" | "hide" | "isVisible" | "show"
+  "center" | "focus" | "hide" | "isVisible" | "on" | "show"
 >;
 
 interface PopupController {
@@ -33,6 +34,36 @@ interface PopupController {
   isVisible: () => boolean;
   toggle: () => boolean;
 }
+
+interface BlurDismissState {
+  armed: boolean;
+  timerHandle: ReturnType<typeof globalThis.setTimeout> | null;
+}
+
+const createBlurDismissState = (): BlurDismissState => ({
+  armed: false,
+  timerHandle: null,
+});
+
+const clearBlurDismissTimer = (blurDismissState: BlurDismissState): void => {
+  if (blurDismissState.timerHandle !== null) {
+    globalThis.clearTimeout(blurDismissState.timerHandle);
+    blurDismissState.timerHandle = null;
+  }
+};
+
+const disarmBlurDismiss = (blurDismissState: BlurDismissState): void => {
+  clearBlurDismissTimer(blurDismissState);
+  blurDismissState.armed = false;
+};
+
+const armBlurDismiss = (blurDismissState: BlurDismissState): void => {
+  clearBlurDismissTimer(blurDismissState);
+  blurDismissState.timerHandle = globalThis.setTimeout(() => {
+    blurDismissState.armed = true;
+    blurDismissState.timerHandle = null;
+  }, blurDismissArmingDelayMs);
+};
 
 const createPopupWindowOptions = (preloadPath: string): BrowserWindowConstructorOptions => ({
   alwaysOnTop: true,
@@ -58,13 +89,7 @@ const createPopupWindow = (
   BrowserWindowClass: BrowserWindowConstructorLike,
   preloadPath: string,
 ): PopupWindowLike => {
-  const popupWindow = new BrowserWindowClass(createPopupWindowOptions(preloadPath));
-
-  popupWindow.on("blur", () => {
-    popupWindow.hide();
-  });
-
-  return popupWindow;
+  return new BrowserWindowClass(createPopupWindowOptions(preloadPath));
 };
 
 const loadPopupWindowContent = async (
@@ -74,33 +99,51 @@ const loadPopupWindowContent = async (
   await popupWindow.loadFile(filePath);
 };
 
-const createPopupController = (popupWindow: PopupControllerWindowLike): PopupController => ({
-  hide: (): boolean => {
-    if (!popupWindow.isVisible()) {
-      return false;
+const createPopupController = (popupWindow: PopupControllerWindowLike): PopupController => {
+  const blurDismissState = createBlurDismissState();
+
+  popupWindow.on("blur", () => {
+    if (!blurDismissState.armed) {
+      return;
     }
 
+    disarmBlurDismiss(blurDismissState);
     popupWindow.hide();
+  });
 
-    return true;
-  },
-  isVisible: (): boolean => popupWindow.isVisible(),
-  toggle: (): boolean => {
-    if (popupWindow.isVisible()) {
+  return {
+    hide: (): boolean => {
+      disarmBlurDismiss(blurDismissState);
+
+      if (!popupWindow.isVisible()) {
+        return false;
+      }
+
       popupWindow.hide();
 
-      return false;
-    }
+      return true;
+    },
+    isVisible: (): boolean => popupWindow.isVisible(),
+    toggle: (): boolean => {
+      if (popupWindow.isVisible()) {
+        disarmBlurDismiss(blurDismissState);
+        popupWindow.hide();
 
-    popupWindow.center?.();
-    popupWindow.show();
-    popupWindow.focus();
+        return false;
+      }
 
-    return true;
-  },
-});
+      popupWindow.center?.();
+      popupWindow.show();
+      popupWindow.focus();
+      armBlurDismiss(blurDismissState);
+
+      return true;
+    },
+  };
+};
 
 export {
+  blurDismissArmingDelayMs,
   createPopupController,
   createPopupWindow,
   createPopupWindowOptions,

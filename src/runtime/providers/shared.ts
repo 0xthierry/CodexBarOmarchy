@@ -38,6 +38,8 @@ type JsonFileReadResult =
 
 const joinPath = (...segments: string[]): string => segments.join("/");
 
+const parseJsonText = (value: string): unknown => JSON.parse(value) as unknown;
+
 const readJsonFile = async (host: RuntimeHost, filePath: string): Promise<JsonFileReadResult> => {
   if (!(await host.fileSystem.fileExists(filePath))) {
     return { status: "missing" };
@@ -48,11 +50,19 @@ const readJsonFile = async (host: RuntimeHost, filePath: string): Promise<JsonFi
 
     return {
       status: "ok",
-      value: JSON.parse(fileContents) as unknown,
+      value: parseJsonText(fileContents),
     };
   } catch {
     return { status: "invalid" };
   }
+};
+
+const writeJsonFile = async (
+  host: RuntimeHost,
+  filePath: string,
+  value: unknown,
+): Promise<void> => {
+  await host.fileSystem.writeTextFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -81,6 +91,26 @@ const readString = (record: Record<string, unknown>, key: string): string | null
   return explicitNull;
 };
 
+const readBoolean = (record: Record<string, unknown>, key: string): boolean | null => {
+  const value = record[key];
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  return explicitNull;
+};
+
+const readArray = (record: Record<string, unknown>, key: string): unknown[] | null => {
+  const value = record[key];
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  return explicitNull;
+};
+
 const readNumber = (record: Record<string, unknown>, key: string): number | null => {
   const value = record[key];
 
@@ -89,6 +119,18 @@ const readNumber = (record: Record<string, unknown>, key: string): number | null
   }
 
   return explicitNull;
+};
+
+const readStringArray = (record: Record<string, unknown>, key: string): string[] | null => {
+  const value = readArray(record, key);
+
+  if (value === null) {
+    return explicitNull;
+  }
+
+  const strings = value.filter((entry): entry is string => typeof entry === "string" && entry !== "");
+
+  return strings.length === value.length ? strings : explicitNull;
 };
 
 const readFiniteNumber = (record: Record<string, unknown>, key: string): number | null => {
@@ -212,11 +254,16 @@ export {
   formatPercent,
   isRecord,
   joinPath,
+  parseJsonText,
+  readArray,
+  readBoolean,
   readFiniteNumber,
   readJsonFile,
   readJwtEmail,
   readNestedRecord,
   readString,
+  readStringArray,
+  writeJsonFile,
   type JsonFileReadResult,
   type ProviderMetricInput,
 };

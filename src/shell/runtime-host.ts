@@ -2,9 +2,14 @@
 
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, realpath, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import type { RuntimeCommandResult, RuntimeHost } from "@/runtime/host.ts";
+import type {
+  RuntimeCommandLineSession,
+  RuntimeCommandResult,
+  RuntimeHost,
+  RuntimeHttpRequestOptions,
+} from "@/runtime/host.ts";
 
 const failedExitCode = 1;
 const terminatedExitCode = 128;
@@ -142,6 +147,131 @@ const runCommand = async (
     }
   });
 
+const createCommandLineSession = async (
+  command: string,
+  args: string[],
+): Promise<RuntimeCommandLineSession> => {
+  const child = spawn(command, args, {
+    env: process.env,
+    stdio: "pipe",
+  });
+  const lineQueue: string[] = [];
+  const pendingReaders: ((line: string | null) => void)[] = [];
+  let buffer = "";
+  let closed = false;
+
+  const flushLine = (line: string): void => {
+    const pendingReader = pendingReaders.shift();
+
+    if (pendingReader !== undefined) {
+      pendingReader(line);
+
+      return;
+    }
+
+    lineQueue.push(line);
+  };
+
+  const flushPendingReaders = (): void => {
+    while (pendingReaders.length > 0) {
+      const pendingReader = pendingReaders.shift();
+
+      pendingReader?.(null);
+    }
+  };
+
+  child.stdout.on("data", (chunk: Buffer) => {
+    buffer += chunk.toString("utf8");
+
+    while (true) {
+      const lineBreakIndex = buffer.indexOf("\n");
+
+      if (lineBreakIndex === -1) {
+        return;
+      }
+
+      const line = buffer.slice(0, lineBreakIndex).replace(/\r$/, "");
+
+      buffer = buffer.slice(lineBreakIndex + 1);
+      flushLine(line);
+    }
+  });
+
+  const finalize = (): void => {
+    if (closed) {
+      return;
+    }
+
+    closed = true;
+
+    if (buffer !== "") {
+      flushLine(buffer.replace(/\r$/, ""));
+      buffer = "";
+    }
+
+    flushPendingReaders();
+  };
+
+  child.on("close", finalize);
+  child.on("error", finalize);
+
+  return {
+    close: async (): Promise<void> => {
+      if (closed) {
+        return;
+      }
+
+      child.kill("SIGTERM");
+      await new Promise<void>((resolve) => {
+        child.once("close", () => {
+          resolve();
+        });
+      });
+    },
+    readLine: async (options?: { timeoutMs?: number }): Promise<string | null> => {
+      if (lineQueue.length > 0) {
+        return lineQueue.shift() ?? null;
+      }
+
+      if (closed) {
+        return null;
+      }
+
+      return await new Promise<string | null>((resolve) => {
+        const reader = (line: string | null): void => {
+          if (timeoutHandle !== null) {
+            globalThis.clearTimeout(timeoutHandle);
+          }
+
+          resolve(line);
+        };
+        const timeoutHandle =
+          typeof options?.timeoutMs === "number"
+            ? globalThis.setTimeout(() => {
+                const readerIndex = pendingReaders.indexOf(reader);
+
+                if (readerIndex !== -1) {
+                  pendingReaders.splice(readerIndex, 1);
+                }
+
+                resolve(null);
+              }, options.timeoutMs)
+            : null;
+
+        pendingReaders.push(reader);
+      });
+    },
+    writeLine: async (line: string): Promise<void> => {
+      if (closed) {
+        throw new Error("Command session is closed.");
+      }
+
+      child.stdin.write(`${line}\n`);
+      await Promise.resolve();
+    },
+  };
+};
+
 const createTerminalLaunchCommand = async (
   command: string,
   args: string[],
@@ -198,15 +328,50 @@ const spawnDetached = (command: string, args: string[]): void => {
 
 const createRuntimeHost = (): RuntimeHost => ({
   commands: {
+    createLineSession: createCommandLineSession,
     run: runCommand,
     which: async (command: string) => await findExecutable(command),
   },
   env: process.env,
   fileSystem: {
     fileExists,
+    realPath: async (filePath: string) => await realpath(filePath),
     readTextFile: async (filePath: string) => await readFile(filePath, "utf8"),
+    writeTextFile: async (filePath: string, contents: string) =>
+      await writeFile(filePath, contents, "utf8"),
   },
   homeDirectory: process.env["HOME"] ?? "",
+  http: {
+    request: async (url: string, options: RuntimeHttpRequestOptions = {}) => {
+      const abortController = new AbortController();
+      const timeoutMs = options.timeoutMs;
+      const timeoutHandle =
+        typeof timeoutMs === "number"
+          ? globalThis.setTimeout(() => {
+              abortController.abort();
+            }, timeoutMs)
+          : null;
+
+      try {
+        const response = await fetch(url, {
+          body: options.body ?? null,
+          headers: options.headers ?? {},
+          method: options.method ?? "GET",
+          signal: abortController.signal,
+        });
+
+        return {
+          bodyText: await response.text(),
+          headers: Object.fromEntries(response.headers.entries()),
+          statusCode: response.status,
+        };
+      } finally {
+        if (timeoutHandle !== null) {
+          globalThis.clearTimeout(timeoutHandle);
+        }
+      }
+    },
+  },
   now: () => new Date(),
   openPath: async (filePath: string) => {
     spawnDetached("xdg-open", [filePath]);

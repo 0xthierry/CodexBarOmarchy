@@ -1,8 +1,13 @@
 /* eslint-disable import/consistent-type-specifier-style, max-lines, max-lines-per-function, max-statements, no-duplicate-imports, no-ternary, no-void, require-await, sort-imports, @typescript-eslint/promise-function-async, @typescript-eslint/return-await */
 
-import type { ProviderActionName, ProviderActionStatus } from "@/core/actions/action-result.ts";
+import {
+  createErrorProviderActionResult,
+  type ProviderActionName,
+  type ProviderActionStatus,
+} from "@/core/actions/action-result.ts";
 import {
   createDefaultProviderAdapters,
+  createRefreshActionResult,
   dispatchLoginAction,
   dispatchOpenTokenFileAction,
   dispatchRecoveryAction,
@@ -415,11 +420,23 @@ const createRefreshProvider =
     markProviderActionRunning(runtime, providerId, "refresh");
     const refreshOperation = (async (): Promise<RefreshActionResult> => {
       try {
-        const actionResult = await dispatchRefreshAction(
-          providerAdapters,
-          runtime.currentState.config,
-          providerId,
-        );
+        let actionResult: RefreshActionResult;
+
+        try {
+          actionResult = await dispatchRefreshAction(
+            providerAdapters,
+            runtime.currentState.config,
+            providerId,
+          );
+        } catch (error) {
+          actionResult = createRefreshActionResult(
+            createErrorProviderActionResult(
+              providerId,
+              "refresh",
+              error instanceof Error ? error.message : `${providerId} refresh failed.`,
+            ),
+          );
+        }
 
         applyActionResult(runtime, providerId, actionResult);
 

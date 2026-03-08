@@ -17,25 +17,117 @@ import {
   formatPercent,
   isRecord,
   joinPath,
+  parseJsonText,
+  readBoolean,
   readFiniteNumber,
   readJsonFile,
   readJwtEmail,
   readNestedRecord,
   readString,
+  writeJsonFile,
   type ProviderMetricInput,
 } from "@/runtime/providers/shared.ts";
 
+const claudeOAuthRefreshEndpoint = "https://platform.claude.com/v1/oauth/token";
+const claudeOAuthUsageEndpoint = "https://api.anthropic.com/api/oauth/usage";
 const claudeStatusInput = "/status\n";
 const claudeTimeoutMs = 8_000;
 const claudeTokenFileNames = ["session-token.json", "session.json"] as const;
+const claudeStatsCacheFileName = "stats-cache.json";
+const claudeStateFileName = ".claude.json";
+const fallbackClaudeCodeVersion = "2.1.0";
+const oauthUsageBetaHeader = "oauth-2025-04-20";
 
 type ClaudeResolvedSource = "cli" | "oauth" | "web";
+
+interface ClaudeCredentialRecord {
+  accessToken: string;
+  expiresAt: number | null;
+  rawRecord: Record<string, unknown>;
+  refreshToken: string | null;
+  subscriptionType: string | null;
+}
+
+interface ClaudeOAuthUsageWindow {
+  resetsAt: string | null;
+  utilization: number | null;
+}
+
+interface ClaudeOAuthUsageResponse {
+  extraUsage: Record<string, unknown> | null;
+  fiveHour: ClaudeOAuthUsageWindow | null;
+  sevenDay: ClaudeOAuthUsageWindow | null;
+  sevenDaySonnet: ClaudeOAuthUsageWindow | null;
+}
+
+interface ClaudeWebUsageResponse {
+  accountEmail: string | null;
+  metrics: ProviderMetricInput[];
+  planLabel: string | null;
+}
+
+interface ClaudeAuthStatusResponse {
+  email: string | null;
+  loggedIn: boolean | null;
+  subscriptionType: string | null;
+}
+
+interface ClaudeStatsRecord {
+  latestDate: string | null;
+  messageCount: number | null;
+  sessionCount: number | null;
+  tokenCount: number | null;
+  toolCallCount: number | null;
+}
 
 const resolveClaudeOauthPath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".claude", ".credentials.json");
 
 const resolveClaudeDefaultTokenFilePath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".claude", claudeTokenFileNames[0]);
+
+const resolveClaudeStatePath = (host: RuntimeHost): string =>
+  joinPath(host.homeDirectory, ".claude", claudeStateFileName);
+
+const resolveClaudeStatsCachePath = (host: RuntimeHost): string =>
+  joinPath(host.homeDirectory, ".claude", claudeStatsCacheFileName);
+
+const resolveClaudeBinaryPath = async (host: RuntimeHost): Promise<string | null> => {
+  const binaryPath = await host.commands.which("claude");
+
+  if (binaryPath === null) {
+    return explicitNull;
+  }
+
+  return await host.fileSystem.realPath(binaryPath);
+};
+
+const resolveClaudeOAuthClientId = async (host: RuntimeHost): Promise<string> => {
+  const binaryPath = await resolveClaudeBinaryPath(host);
+
+  if (binaryPath === null) {
+    throw new Error("Claude CLI is unavailable for OAuth refresh.");
+  }
+
+  const stringsResult = await host.commands.run("strings", [binaryPath], {
+    timeoutMs: claudeTimeoutMs,
+  });
+
+  if (stringsResult.exitCode !== 0) {
+    throw new Error("Failed to inspect the Claude CLI binary for OAuth metadata.");
+  }
+
+  const clientId =
+    stringsResult.stdout.match(
+      /TOKEN_URL:"https:\/\/platform\.claude\.com\/v1\/oauth\/token"[\s\S]{0,400}?CLIENT_ID:"([0-9a-f-]{36})"/u,
+    )?.[1] ?? explicitNull;
+
+  if (clientId === null) {
+    throw new Error("Failed to discover Claude OAuth client metadata from the installed CLI.");
+  }
+
+  return clientId;
+};
 
 const resolveClaudeTokenFilePath = async (host: RuntimeHost): Promise<string | null> => {
   for (const fileName of claudeTokenFileNames) {
@@ -49,62 +141,394 @@ const resolveClaudeTokenFilePath = async (host: RuntimeHost): Promise<string | n
   return explicitNull;
 };
 
-const collectClaudeMetrics = (usageRecord: Record<string, unknown>): ProviderMetricInput[] => {
-  const fiveHour = readNestedRecord(usageRecord, "five_hour");
-  const sevenDay = readNestedRecord(usageRecord, "seven_day");
-  const sevenDaySonnet = readNestedRecord(usageRecord, "seven_day_sonnet");
+const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMetricInput[] => {
   const metrics: ProviderMetricInput[] = [];
 
-  if (fiveHour) {
-    const utilization = readFiniteNumber(fiveHour, "utilization");
-
-    if (utilization !== null) {
-      metrics.push({
-        detail: readString(fiveHour, "resets_at"),
-        label: "Session",
-        value: formatPercent(utilization),
-      });
-    }
+  if (usageRecord.fiveHour?.utilization !== null && usageRecord.fiveHour?.utilization !== undefined) {
+    metrics.push({
+      detail: usageRecord.fiveHour.resetsAt,
+      label: "Session",
+      value: formatPercent(usageRecord.fiveHour.utilization),
+    });
   }
 
-  if (sevenDay) {
-    const utilization = readFiniteNumber(sevenDay, "utilization");
-
-    if (utilization !== null) {
-      metrics.push({
-        detail: readString(sevenDay, "resets_at"),
-        label: "Weekly",
-        value: formatPercent(utilization),
-      });
-    }
+  if (usageRecord.sevenDay?.utilization !== null && usageRecord.sevenDay?.utilization !== undefined) {
+    metrics.push({
+      detail: usageRecord.sevenDay.resetsAt,
+      label: "Weekly",
+      value: formatPercent(usageRecord.sevenDay.utilization),
+    });
   }
 
-  if (sevenDaySonnet) {
-    const utilization = readFiniteNumber(sevenDaySonnet, "utilization");
-
-    if (utilization !== null) {
-      metrics.push({
-        detail: readString(sevenDaySonnet, "resets_at"),
-        label: "Sonnet",
-        value: formatPercent(utilization),
-      });
-    }
+  if (
+    usageRecord.sevenDaySonnet?.utilization !== null &&
+    usageRecord.sevenDaySonnet?.utilization !== undefined
+  ) {
+    metrics.push({
+      detail: usageRecord.sevenDaySonnet.resetsAt,
+      label: "Sonnet",
+      value: formatPercent(usageRecord.sevenDaySonnet.utilization),
+    });
   }
 
   return metrics;
 };
 
-const parseClaudeOAuthSnapshot = (
-  oauthPayload: unknown,
-  updatedAt: string,
-): ProviderRefreshActionResult<"claude"> => {
-  if (!isRecord(oauthPayload)) {
-    return createRefreshError("claude", "Claude OAuth credentials are not valid JSON.");
+const collectClaudeLocalMetrics = (statsRecord: ClaudeStatsRecord): ProviderMetricInput[] => {
+  const metrics: ProviderMetricInput[] = [];
+
+  if (statsRecord.tokenCount !== null) {
+    metrics.push({
+      detail: statsRecord.latestDate,
+      label: "Tokens",
+      value: String(statsRecord.tokenCount),
+    });
   }
 
-  const usageRecord = readNestedRecord(oauthPayload, "usage") ?? oauthPayload;
-  const metrics = collectClaudeMetrics(usageRecord);
-  const tokenRecord = readNestedRecord(oauthPayload, "tokens");
+  if (statsRecord.messageCount !== null) {
+    metrics.push({
+      detail: statsRecord.latestDate,
+      label: "Messages",
+      value: String(statsRecord.messageCount),
+    });
+  }
+
+  if (statsRecord.sessionCount !== null) {
+    metrics.push({
+      detail: statsRecord.latestDate,
+      label: "Sessions",
+      value: String(statsRecord.sessionCount),
+    });
+  }
+
+  if (statsRecord.toolCallCount !== null) {
+    metrics.push({
+      detail: statsRecord.latestDate,
+      label: "Tools",
+      value: String(statsRecord.toolCallCount),
+    });
+  }
+
+  return metrics;
+};
+
+const readLatestDatedRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!Array.isArray(value)) {
+    return explicitNull;
+  }
+
+  let latestRecord: Record<string, unknown> | null = explicitNull;
+  let latestDate = "";
+
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    const date = readString(entry, "date");
+
+    if (date !== null && date >= latestDate) {
+      latestDate = date;
+      latestRecord = entry;
+    }
+  }
+
+  return latestRecord;
+};
+
+const parseClaudeCredentials = (value: unknown): ClaudeCredentialRecord | null => {
+  if (!isRecord(value)) {
+    return explicitNull;
+  }
+
+  const oauthRecord = readNestedRecord(value, "claudeAiOauth") ?? value;
+  const accessToken = readString(oauthRecord, "accessToken");
+
+  if (accessToken === null) {
+    return explicitNull;
+  }
+
+  return {
+    accessToken,
+    expiresAt: readFiniteNumber(oauthRecord, "expiresAt"),
+    rawRecord: value,
+    refreshToken: readString(oauthRecord, "refreshToken"),
+    subscriptionType:
+      readString(oauthRecord, "subscriptionType") ??
+      readString(oauthRecord, "rateLimitTier") ??
+      readString(value, "plan") ??
+      explicitNull,
+  };
+};
+
+const parseClaudeAuthStatus = (value: unknown): ClaudeAuthStatusResponse | null => {
+  if (!isRecord(value)) {
+    return explicitNull;
+  }
+
+  return {
+    email: readString(value, "email"),
+    loggedIn: readBoolean(value, "loggedIn"),
+    subscriptionType: readString(value, "subscriptionType"),
+  };
+};
+
+const parseClaudeStatsRecord = (value: unknown): ClaudeStatsRecord | null => {
+  if (!isRecord(value)) {
+    return explicitNull;
+  }
+
+  const latestActivityRecord = readLatestDatedRecord(value["dailyActivity"]);
+  const latestTokenRecord = readLatestDatedRecord(value["dailyModelTokens"]);
+  const tokensByModel = latestTokenRecord ? readNestedRecord(latestTokenRecord, "tokensByModel") : explicitNull;
+  let tokenCount = 0;
+  let tokenCountFound = false;
+
+  if (tokensByModel !== null) {
+    for (const entry of Object.values(tokensByModel)) {
+      if (typeof entry === "number" && Number.isFinite(entry)) {
+        tokenCount += entry;
+        tokenCountFound = true;
+      }
+    }
+  }
+
+  const latestDate =
+    (latestActivityRecord ? readString(latestActivityRecord, "date") : explicitNull) ??
+    (latestTokenRecord ? readString(latestTokenRecord, "date") : explicitNull);
+
+  return {
+    latestDate,
+    messageCount: latestActivityRecord ? readFiniteNumber(latestActivityRecord, "messageCount") : explicitNull,
+    sessionCount: latestActivityRecord ? readFiniteNumber(latestActivityRecord, "sessionCount") : explicitNull,
+    tokenCount: tokenCountFound ? tokenCount : explicitNull,
+    toolCallCount: latestActivityRecord ? readFiniteNumber(latestActivityRecord, "toolCallCount") : explicitNull,
+  };
+};
+
+const updateClaudeCredentialRecord = (
+  rawRecord: Record<string, unknown>,
+  updates: {
+    accessToken: string;
+    expiresAt: number | null;
+    accountEmail?: string | null;
+    refreshToken: string | null;
+    scopes?: string[] | null;
+  },
+): Record<string, unknown> => {
+  const oauthRecord = readNestedRecord(rawRecord, "claudeAiOauth");
+  const accountEmail = updates.accountEmail ?? readString(rawRecord, "email");
+  const scopes =
+    updates.scopes ??
+    (oauthRecord && Array.isArray(oauthRecord["scopes"]) ? oauthRecord["scopes"] : explicitNull);
+
+  if (oauthRecord !== null) {
+    return {
+      ...rawRecord,
+      ...(accountEmail === null ? {} : { email: accountEmail }),
+      claudeAiOauth: {
+        ...oauthRecord,
+        accessToken: updates.accessToken,
+        expiresAt: updates.expiresAt,
+        refreshToken: updates.refreshToken ?? readString(oauthRecord, "refreshToken"),
+        ...(Array.isArray(scopes) ? { scopes } : {}),
+      },
+    };
+  }
+
+  return {
+    ...rawRecord,
+    ...(accountEmail === null ? {} : { email: accountEmail }),
+    accessToken: updates.accessToken,
+    expiresAt: updates.expiresAt,
+    refreshToken: updates.refreshToken,
+    ...(Array.isArray(scopes) ? { scopes } : {}),
+  };
+};
+
+const refreshClaudeAccessToken = async (
+  host: RuntimeHost,
+  credentials: ClaudeCredentialRecord,
+): Promise<ClaudeCredentialRecord> => {
+  if (credentials.refreshToken === null || credentials.refreshToken === "") {
+    throw new Error("Claude OAuth refresh token is unavailable.");
+  }
+
+  const oauthClientId = await resolveClaudeOAuthClientId(host);
+  const refreshResponse = await host.http.request(claudeOAuthRefreshEndpoint, {
+    body: new URLSearchParams({
+      client_id: oauthClientId,
+      grant_type: "refresh_token",
+      refresh_token: credentials.refreshToken,
+    }).toString(),
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    method: "POST",
+    timeoutMs: claudeTimeoutMs,
+  });
+
+  if (refreshResponse.statusCode !== 200) {
+    throw new Error(`Claude OAuth refresh failed with HTTP ${refreshResponse.statusCode}.`);
+  }
+
+  const refreshPayload = parseJsonText(refreshResponse.bodyText);
+  const accountRecord = isRecord(refreshPayload) ? readNestedRecord(refreshPayload, "account") : explicitNull;
+
+  if (!isRecord(refreshPayload)) {
+    throw new Error("Claude OAuth refresh returned invalid JSON.");
+  }
+
+  const expiresIn = readFiniteNumber(refreshPayload, "expires_in");
+  const updatedRecord = updateClaudeCredentialRecord(credentials.rawRecord, {
+    accessToken: readString(refreshPayload, "access_token") ?? credentials.accessToken,
+    accountEmail:
+      (accountRecord ? readString(accountRecord, "email_address") : explicitNull) ??
+      (accountRecord ? readString(accountRecord, "email") : explicitNull),
+    expiresAt:
+      expiresIn === null
+        ? credentials.expiresAt
+        : host.now().valueOf() + expiresIn * 1000,
+    refreshToken: readString(refreshPayload, "refresh_token") ?? credentials.refreshToken,
+    scopes:
+      readString(refreshPayload, "scope")
+        ?.split(/\s+/u)
+        .filter((value) => value !== "") ?? explicitNull,
+  });
+
+  await writeJsonFile(host, resolveClaudeOauthPath(host), updatedRecord);
+
+  const nextCredentials = parseClaudeCredentials(updatedRecord);
+
+  if (nextCredentials === null) {
+    throw new Error("Claude OAuth refresh wrote an invalid credentials file.");
+  }
+
+  return nextCredentials;
+};
+
+const createClaudeOAuthUsageResponse = (value: unknown): ClaudeOAuthUsageResponse | null => {
+  if (!isRecord(value)) {
+    return explicitNull;
+  }
+
+  const readWindow = (key: string): ClaudeOAuthUsageWindow | null => {
+    const window = readNestedRecord(value, key);
+
+    if (window === null) {
+      return explicitNull;
+    }
+
+    return {
+      resetsAt: readString(window, "resets_at"),
+      utilization: readFiniteNumber(window, "utilization"),
+    };
+  };
+
+  return {
+    extraUsage: readNestedRecord(value, "extra_usage"),
+    fiveHour: readWindow("five_hour"),
+    sevenDay: readWindow("seven_day"),
+    sevenDaySonnet: readWindow("seven_day_sonnet"),
+  };
+};
+
+const getActiveClaudeSessionToken = (providerConfig: {
+  activeTokenAccountIndex: number;
+  tokenAccounts: {
+    label: string;
+    token: string;
+  }[];
+}): string | null => {
+  const activeTokenAccount = providerConfig.tokenAccounts[providerConfig.activeTokenAccountIndex];
+  const sessionToken = activeTokenAccount?.token.trim();
+
+  if (typeof sessionToken === "string" && sessionToken !== "") {
+    return sessionToken;
+  }
+
+  return explicitNull;
+};
+
+const fetchClaudeWebUsage = async (
+  host: RuntimeHost,
+  sessionToken: string,
+): Promise<ClaudeWebUsageResponse> => {
+  const organizationsResponse = await host.http.request("https://claude.ai/api/organizations", {
+    headers: {
+      Accept: "application/json",
+      Cookie: `sessionKey=${sessionToken}`,
+    },
+    method: "GET",
+    timeoutMs: claudeTimeoutMs,
+  });
+
+  if (organizationsResponse.statusCode < 200 || organizationsResponse.statusCode >= 300) {
+    throw new Error(`Claude organizations request failed with HTTP ${organizationsResponse.statusCode}.`);
+  }
+
+  const organizationsPayload = parseJsonText(organizationsResponse.bodyText);
+
+  if (!Array.isArray(organizationsPayload)) {
+    throw new Error("Claude organizations response was invalid.");
+  }
+
+  const firstOrganization = organizationsPayload.find((entry) => isRecord(entry));
+
+  if (firstOrganization === undefined || !isRecord(firstOrganization)) {
+    throw new Error("Claude organizations response did not include an organization.");
+  }
+
+  const organizationId = readString(firstOrganization, "id");
+
+  if (organizationId === null) {
+    throw new Error("Claude organizations response did not include an organization id.");
+  }
+
+  const usageResponse = await host.http.request(
+    `https://claude.ai/api/organizations/${organizationId}/usage`,
+    {
+      headers: {
+        Accept: "application/json",
+        Cookie: `sessionKey=${sessionToken}`,
+      },
+      method: "GET",
+      timeoutMs: claudeTimeoutMs,
+    },
+  );
+
+  if (usageResponse.statusCode < 200 || usageResponse.statusCode >= 300) {
+    throw new Error(`Claude usage request failed with HTTP ${usageResponse.statusCode}.`);
+  }
+
+  const usagePayload = createClaudeOAuthUsageResponse(parseJsonText(usageResponse.bodyText));
+
+  if (usagePayload === null) {
+    throw new Error("Claude usage response was invalid.");
+  }
+
+  const metrics = collectClaudeMetrics(usagePayload);
+
+  if (metrics.length === 0) {
+    throw new Error("Claude web session did not include usage metrics.");
+  }
+
+  return {
+    accountEmail: explicitNull,
+    metrics,
+    planLabel: readString(firstOrganization, "name"),
+  };
+};
+
+const parseClaudeOAuthSnapshot = (
+  oauthPayload: ClaudeOAuthUsageResponse,
+  credentials: ClaudeCredentialRecord,
+  rawCredentials: Record<string, unknown>,
+  updatedAt: string,
+): ProviderRefreshActionResult<"claude"> => {
+  const metrics = collectClaudeMetrics(oauthPayload);
+  const oauthRecord = readNestedRecord(rawCredentials, "claudeAiOauth");
 
   if (metrics.length === 0) {
     return createRefreshError("claude", "Claude OAuth data did not include usage metrics.");
@@ -115,13 +539,13 @@ const parseClaudeOAuthSnapshot = (
     "Claude refreshed via OAuth.",
     createSnapshot({
       accountEmail:
-        readString(oauthPayload, "email") ??
-        (tokenRecord ? readJwtEmail(tokenRecord, "id_token") : explicitNull),
+        readString(rawCredentials, "email") ??
+        (oauthRecord ? readJwtEmail(oauthRecord, "idToken") : explicitNull) ??
+        (oauthRecord ? readJwtEmail(oauthRecord, "id_token") : explicitNull),
       metrics,
-      planLabel: readString(usageRecord, "plan") ?? readString(oauthPayload, "plan"),
+      planLabel: credentials.subscriptionType,
       sourceLabel: "oauth",
       updatedAt,
-      version: readString(usageRecord, "version") ?? readString(oauthPayload, "version"),
     }),
   );
 };
@@ -173,13 +597,27 @@ const parseClaudeWebSnapshot = (
   tokenPayload: unknown,
   updatedAt: string,
 ): ProviderRefreshActionResult<"claude"> => {
+  if (isRecord(tokenPayload) && Array.isArray(tokenPayload["metrics"])) {
+    return createRefreshSuccess(
+      "claude",
+      "Claude refreshed via web session.",
+      createSnapshot({
+        accountEmail: readString(tokenPayload, "accountEmail"),
+        metrics: tokenPayload["metrics"] as ProviderMetricInput[],
+        planLabel: readString(tokenPayload, "planLabel"),
+        sourceLabel: "web",
+        updatedAt,
+      }),
+    );
+  }
+
   if (!isRecord(tokenPayload)) {
     return createRefreshError("claude", "Claude token file is not valid JSON.");
   }
 
-  const usageRecord = readNestedRecord(tokenPayload, "usage") ?? tokenPayload;
+  const usageRecord = createClaudeOAuthUsageResponse(readNestedRecord(tokenPayload, "usage") ?? tokenPayload);
   const accountRecord = readNestedRecord(tokenPayload, "account");
-  const metrics = collectClaudeMetrics(usageRecord);
+  const metrics = usageRecord ? collectClaudeMetrics(usageRecord) : [];
 
   if (metrics.length === 0) {
     return createRefreshError("claude", "Claude web snapshot did not include usage metrics.");
@@ -200,13 +638,211 @@ const parseClaudeWebSnapshot = (
   );
 };
 
+const parseClaudeLocalSnapshot = (
+  authStatus: ClaudeAuthStatusResponse,
+  statsRecord: ClaudeStatsRecord,
+  fallbackAccountEmail: string | null,
+  updatedAt: string,
+): ProviderRefreshActionResult<"claude"> => {
+  const metrics = collectClaudeLocalMetrics(statsRecord);
+
+  if (metrics.length === 0) {
+    return createRefreshError("claude", "Claude local stats did not include usable usage metrics.");
+  }
+
+  return createRefreshSuccess(
+    "claude",
+    "Claude refreshed via local stats.",
+    createSnapshot({
+      accountEmail: authStatus.email ?? fallbackAccountEmail,
+      metrics,
+      planLabel: authStatus.subscriptionType,
+      sourceLabel: "local",
+      updatedAt,
+    }),
+  );
+};
+
+const fetchClaudeLocalSnapshot = async (
+  host: RuntimeHost,
+): Promise<ProviderRefreshActionResult<"claude">> => {
+  const authStatusCommandResult = await host.commands.run("claude", ["auth", "status", "--json"], {
+    timeoutMs: claudeTimeoutMs,
+  });
+
+  if (authStatusCommandResult.exitCode !== 0) {
+    return createRefreshError(
+      "claude",
+      authStatusCommandResult.stderr || "Claude auth status command failed.",
+    );
+  }
+
+  let authStatusPayload: unknown;
+
+  try {
+    authStatusPayload = parseJsonText(authStatusCommandResult.stdout);
+  } catch {
+    return createRefreshError("claude", "Claude auth status returned invalid JSON.");
+  }
+
+  const authStatus = parseClaudeAuthStatus(authStatusPayload);
+
+  if (authStatus === null) {
+    return createRefreshError("claude", "Claude auth status returned invalid JSON.");
+  }
+
+  if (authStatus.loggedIn === false) {
+    return createRefreshError("claude", "Claude auth status reports that the CLI is logged out.");
+  }
+
+  const statsPayload = await readJsonFile(host, resolveClaudeStatsCachePath(host));
+
+  if (statsPayload.status !== "ok") {
+    return createRefreshError("claude", "Claude stats cache could not be read.");
+  }
+
+  const statsRecord = parseClaudeStatsRecord(statsPayload.value);
+
+  if (statsRecord === null) {
+    return createRefreshError("claude", "Claude stats cache was invalid.");
+  }
+
+  const statePayload = await readJsonFile(host, resolveClaudeStatePath(host));
+  const stateRecord = statePayload.status === "ok" && isRecord(statePayload.value) ? statePayload.value : explicitNull;
+
+  return parseClaudeLocalSnapshot(
+    authStatus,
+    statsRecord,
+    stateRecord ? readString(stateRecord, "emailAddress") : explicitNull,
+    host.now().toISOString(),
+  );
+};
+
+const fetchClaudeOAuthSnapshot = async (
+  host: RuntimeHost,
+): Promise<ProviderRefreshActionResult<"claude">> => {
+  const credentialsPayload = await readJsonFile(host, resolveClaudeOauthPath(host));
+
+  if (credentialsPayload.status !== "ok") {
+    return createRefreshError("claude", "Claude OAuth credentials could not be read.");
+  }
+
+  let credentials = parseClaudeCredentials(credentialsPayload.value);
+
+  if (credentials === null) {
+    return createRefreshError("claude", "Claude OAuth credentials are missing.");
+  }
+
+  if (
+    credentials.expiresAt !== null &&
+    Number.isFinite(credentials.expiresAt) &&
+    credentials.expiresAt <= host.now().valueOf()
+  ) {
+    try {
+      credentials = await refreshClaudeAccessToken(host, credentials);
+    } catch (error) {
+      if (error instanceof Error) {
+        return createRefreshError("claude", error.message);
+      }
+
+      return createRefreshError("claude", "Claude OAuth refresh failed.");
+    }
+  }
+
+  const fetchUsage = async (
+    accessToken: string,
+    allowRefreshRetry: boolean,
+  ): Promise<ProviderRefreshActionResult<"claude">> => {
+    let usageResponse;
+
+    try {
+      usageResponse = await host.http.request(claudeOAuthUsageEndpoint, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "User-Agent": `claude-code/${fallbackClaudeCodeVersion}`,
+          "anthropic-beta": oauthUsageBetaHeader,
+        },
+        method: "GET",
+        timeoutMs: claudeTimeoutMs,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        return createRefreshError("claude", error.message);
+      }
+
+      return createRefreshError("claude", "Claude OAuth request failed.");
+    }
+
+    if (usageResponse.statusCode === 401 && allowRefreshRetry && credentials?.refreshToken) {
+      try {
+        credentials = await refreshClaudeAccessToken(host, credentials);
+      } catch (error) {
+        if (error instanceof Error) {
+          return createRefreshError("claude", error.message);
+        }
+
+        return createRefreshError("claude", "Claude OAuth refresh failed.");
+      }
+
+      if (credentials.accessToken !== accessToken) {
+        return await fetchUsage(credentials.accessToken, false);
+      }
+    }
+
+    if (usageResponse.statusCode < 200 || usageResponse.statusCode >= 300) {
+      return createRefreshError(
+        "claude",
+        `Claude OAuth request failed with HTTP ${usageResponse.statusCode}.`,
+      );
+    }
+
+    let usagePayload: ClaudeOAuthUsageResponse | null;
+
+    try {
+      usagePayload = createClaudeOAuthUsageResponse(parseJsonText(usageResponse.bodyText));
+    } catch {
+      return createRefreshError("claude", "Claude OAuth response was invalid.");
+    }
+
+    if (usagePayload === null) {
+      return createRefreshError("claude", "Claude OAuth response was invalid.");
+    }
+
+    if (credentials === null) {
+      return createRefreshError("claude", "Claude OAuth credentials are missing.");
+    }
+
+    const currentCredentials: ClaudeCredentialRecord = credentials;
+
+    return parseClaudeOAuthSnapshot(
+      usagePayload,
+      currentCredentials,
+      currentCredentials.rawRecord,
+      host.now().toISOString(),
+    );
+  };
+
+  return await fetchUsage(credentials.accessToken, true);
+};
+
 const resolveClaudeSource = async (
   host: RuntimeHost,
   selectedSource: "auto" | "cli" | "oauth" | "web",
+  providerConfig: {
+    activeTokenAccountIndex: number;
+    tokenAccounts: {
+      label: string;
+      token: string;
+    }[];
+  },
 ): Promise<ClaudeResolvedSource | null> => {
   const hasOauth = await host.fileSystem.fileExists(resolveClaudeOauthPath(host));
   const hasCli = (await host.commands.which("claude")) !== null;
-  const hasWeb = (await resolveClaudeTokenFilePath(host)) !== null;
+  const hasWeb =
+    getActiveClaudeSessionToken(providerConfig) !== null ||
+    (await resolveClaudeTokenFilePath(host)) !== null;
 
   if (selectedSource === "oauth") {
     return hasOauth ? "oauth" : explicitNull;
@@ -256,50 +892,92 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
     );
   },
   refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"claude">> => {
-    const resolvedSource = await resolveClaudeSource(host, providerConfig.source);
+    const resolvedSource = await resolveClaudeSource(host, providerConfig.source, providerConfig);
 
     if (resolvedSource === null) {
       return createRefreshError("claude", "Claude credentials, CLI, or token file are unavailable.");
     }
 
-    const updatedAt = host.now().toISOString();
-
-    if (resolvedSource === "oauth") {
-      const oauthPayload = await readJsonFile(host, resolveClaudeOauthPath(host));
-
-      if (oauthPayload.status !== "ok") {
-        return createRefreshError("claude", "Claude OAuth credentials could not be read.");
-      }
-
-      return parseClaudeOAuthSnapshot(oauthPayload.value, updatedAt);
-    }
-
-    if (resolvedSource === "cli") {
+    const refreshViaCli = async (): Promise<ProviderRefreshActionResult<"claude">> => {
       const commandResult = await host.commands.run("claude", [], {
         input: claudeStatusInput,
         timeoutMs: claudeTimeoutMs,
       });
 
-      if (commandResult.exitCode !== 0) {
-        return createRefreshError("claude", commandResult.stderr || "Claude CLI refresh failed.");
+      if (commandResult.exitCode === 0) {
+        const cliResult = parseClaudeCliSnapshot(commandResult.stdout, host.now().toISOString());
+
+        if (cliResult.status !== "error") {
+          return cliResult;
+        }
       }
 
-      return parseClaudeCliSnapshot(commandResult.stdout, updatedAt);
+      return await fetchClaudeLocalSnapshot(host);
+    };
+
+    const refreshViaWeb = async (): Promise<ProviderRefreshActionResult<"claude">> => {
+      const updatedAt = host.now().toISOString();
+      const manualSessionToken = getActiveClaudeSessionToken(providerConfig);
+
+      if (manualSessionToken !== null) {
+        try {
+          return parseClaudeWebSnapshot(
+            await fetchClaudeWebUsage(host, manualSessionToken),
+            updatedAt,
+          );
+        } catch (error) {
+          if (error instanceof Error) {
+            return createRefreshError("claude", error.message);
+          }
+
+          return createRefreshError("claude", "Claude web session refresh failed.");
+        }
+      }
+
+      const tokenFilePath = await resolveClaudeTokenFilePath(host);
+
+      if (tokenFilePath === null) {
+        return createRefreshError("claude", "Claude token file is unavailable.");
+      }
+
+      const tokenPayload = await readJsonFile(host, tokenFilePath);
+
+      if (tokenPayload.status !== "ok") {
+        return createRefreshError("claude", "Claude token file could not be read.");
+      }
+
+      return parseClaudeWebSnapshot(tokenPayload.value, updatedAt);
+    };
+
+    if (resolvedSource === "oauth") {
+      const oauthResult = await fetchClaudeOAuthSnapshot(host);
+
+      if (oauthResult.status !== "error" || providerConfig.source !== "auto") {
+        return oauthResult;
+      }
+
+      if ((await host.commands.which("claude")) !== null) {
+        const cliResult = await refreshViaCli();
+
+        if (cliResult.status !== "error") {
+          return cliResult;
+        }
+      }
+
+      return await refreshViaWeb();
     }
 
-    const tokenFilePath = await resolveClaudeTokenFilePath(host);
+    if (resolvedSource === "cli") {
+      const cliResult = await refreshViaCli();
 
-    if (tokenFilePath === null) {
-      return createRefreshError("claude", "Claude token file is unavailable.");
+      if (cliResult.status !== "error" || providerConfig.source !== "auto") {
+        return cliResult;
+      }
+
+      return await refreshViaWeb();
     }
 
-    const tokenPayload = await readJsonFile(host, tokenFilePath);
-
-    if (tokenPayload.status !== "ok") {
-      return createRefreshError("claude", "Claude token file could not be read.");
-    }
-
-    return parseClaudeWebSnapshot(tokenPayload.value, updatedAt);
+    return await refreshViaWeb();
   },
   reloadTokenFile: async (): Promise<
     ReturnType<typeof createErrorProviderActionResult<"claude", "reloadTokenFile">>

@@ -385,6 +385,58 @@ test("shows in-flight refresh state and applies the final provider snapshot once
   ]);
 });
 
+test("converts thrown refresh operations into provider error state", async () => {
+  const appStore = createAppStore({
+    binaryLocator: createTestBinaryLocator({
+      claude: true,
+      codex: true,
+      gemini: true,
+    }),
+    configStore: createFakeConfigStore(createDefaultConfig()),
+    providerAdapters: {
+      claude: {
+        login: async () =>
+          createSuccessfulProviderActionResult("claude", "login", "Claude login started."),
+        openTokenFile: async () =>
+          createSuccessfulProviderActionResult("claude", "openTokenFile", "Opened."),
+        refresh: async () => {
+          throw new Error("network down");
+        },
+        reloadTokenFile: async () =>
+          createSuccessfulProviderActionResult("claude", "reloadTokenFile", "Reloaded."),
+        repair: async () =>
+          createSuccessfulProviderActionResult("claude", "repair", "Claude repaired."),
+      },
+      codex: {
+        login: async () =>
+          createSuccessfulProviderActionResult("codex", "login", "Codex login started."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("codex", "refresh", "Codex refreshed."),
+          ),
+      },
+      gemini: {
+        login: async () =>
+          createSuccessfulProviderActionResult("gemini", "login", "Gemini login started."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("gemini", "refresh", "Gemini refreshed."),
+          ),
+      },
+    },
+  });
+
+  await appStore.initialize();
+
+  const refreshResult = await appStore.refreshProvider("claude");
+
+  expect(refreshResult.status).toBe("error");
+  expect(refreshResult.message).toBe("network down");
+  expect(appStore.getProviderView("claude").actions.refresh.status).toBe("error");
+  expect(appStore.getProviderView("claude").status.state).toBe("error");
+  expect(appStore.getProviderView("claude").status.latestError).toBe("network down");
+});
+
 test("tracks scheduler state through explicit start and stop calls", async () => {
   const appStore = await createInitializedAppStore();
 

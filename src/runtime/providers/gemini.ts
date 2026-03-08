@@ -14,21 +14,55 @@ import {
   formatFractionPercent,
   isRecord,
   joinPath,
+  parseJsonText,
   readFiniteNumber,
   readJsonFile,
   readJwtEmail,
   readNestedRecord,
   readString,
+  writeJsonFile,
 } from "@/runtime/providers/shared.ts";
+
+const geminiLoadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
+const geminiProjectListEndpoint = "https://cloudresourcemanager.googleapis.com/v1/projects";
+const geminiQuotaEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
+const geminiRefreshEndpoint = "https://oauth2.googleapis.com/token";
+const geminiTimeoutMs = 15_000;
+const oauthClientFileCandidates = [
+  "../gemini-cli-core/dist/src/code_assist/oauth2.js",
+  "node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+  "share/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+  "libexec/lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+  "lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+] as const;
+
+type GeminiResolvedSource = "api";
+type GeminiTier = "free-tier" | "legacy-tier" | "standard-tier" | null;
+
+interface GeminiOAuthCredentials {
+  accessToken: string;
+  expiryDate: number | null;
+  idToken: string | null;
+  rawRecord: Record<string, unknown>;
+  refreshToken: string | null;
+}
+
+interface GeminiQuotaBucket {
+  modelId: string | null;
+  remainingFraction: number | null;
+  resetTime: string | null;
+}
+
+interface GeminiCodeAssistStatus {
+  projectId: string | null;
+  tier: GeminiTier;
+}
 
 const resolveGeminiSettingsPath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".gemini", "settings.json");
 
 const resolveGeminiOauthPath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".gemini", "oauth_creds.json");
-
-const resolveGeminiQuotaPath = (host: RuntimeHost): string =>
-  joinPath(host.homeDirectory, ".gemini", "quota.json");
 
 const readGeminiAuthType = async (host: RuntimeHost): Promise<string | null> => {
   const settingsPayload = await readJsonFile(host, resolveGeminiSettingsPath(host));
@@ -43,89 +77,510 @@ const readGeminiAuthType = async (host: RuntimeHost): Promise<string | null> => 
   return auth ? readString(auth, "selectedType") : explicitNull;
 };
 
-const resolveGeminiSource = async (host: RuntimeHost): Promise<"api" | null> => {
+const parseGeminiCredentials = (value: unknown): GeminiOAuthCredentials | null => {
+  if (!isRecord(value)) {
+    return explicitNull;
+  }
+
+  const accessToken = readString(value, "access_token");
+
+  if (accessToken === null) {
+    return explicitNull;
+  }
+
+  return {
+    accessToken,
+    expiryDate: readFiniteNumber(value, "expiry_date"),
+    idToken: readString(value, "id_token") ?? readString(value, "idToken"),
+    rawRecord: value,
+    refreshToken: readString(value, "refresh_token"),
+  };
+};
+
+const extractGeminiClientCredentials = async (
+  host: RuntimeHost,
+): Promise<{ clientId: string; clientSecret: string } | null> => {
+  const geminiBinaryPath = await host.commands.which("gemini");
+
+  if (geminiBinaryPath === null) {
+    return explicitNull;
+  }
+
+  const resolvedBinaryPath = await host.fileSystem.realPath(geminiBinaryPath);
+  const binaryDirectory = resolvedBinaryPath.slice(0, resolvedBinaryPath.lastIndexOf("/"));
+  const baseDirectory = binaryDirectory.slice(0, binaryDirectory.lastIndexOf("/"));
+  const clientIdPattern = /OAUTH_CLIENT_ID\s*=\s*['"]([\w\-.]+)['"]/u;
+  const clientSecretPattern = /OAUTH_CLIENT_SECRET\s*=\s*['"]([\w-]+)['"]/u;
+
+  for (const candidate of oauthClientFileCandidates) {
+    const candidatePath = joinPath(baseDirectory, candidate);
+
+    if (!(await host.fileSystem.fileExists(candidatePath))) {
+      continue;
+    }
+
+    const fileContents = await host.fileSystem.readTextFile(candidatePath);
+    const clientId = fileContents.match(clientIdPattern)?.[1];
+    const clientSecret = fileContents.match(clientSecretPattern)?.[1];
+
+    if (typeof clientId === "string" && typeof clientSecret === "string") {
+      return {
+        clientId,
+        clientSecret,
+      };
+    }
+  }
+
+  return explicitNull;
+};
+
+const refreshGeminiAccessToken = async (
+  host: RuntimeHost,
+  credentials: GeminiOAuthCredentials,
+): Promise<GeminiOAuthCredentials> => {
+  if (credentials.refreshToken === null || credentials.refreshToken === "") {
+    throw new Error("Gemini refresh token is unavailable.");
+  }
+
+  const oauthClientCredentials = await extractGeminiClientCredentials(host);
+
+  if (oauthClientCredentials === null) {
+    throw new Error("Could not locate Gemini CLI OAuth client credentials.");
+  }
+
+  const refreshResponse = await host.http.request(geminiRefreshEndpoint, {
+    body: new URLSearchParams({
+      client_id: oauthClientCredentials.clientId,
+      client_secret: oauthClientCredentials.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: credentials.refreshToken,
+    }).toString(),
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    method: "POST",
+    timeoutMs: geminiTimeoutMs,
+  });
+
+  if (refreshResponse.statusCode !== 200) {
+    throw new Error(`Gemini token refresh failed with HTTP ${refreshResponse.statusCode}.`);
+  }
+
+  const refreshPayload = parseJsonText(refreshResponse.bodyText);
+
+  if (!isRecord(refreshPayload)) {
+    throw new Error("Gemini token refresh returned invalid JSON.");
+  }
+
+  const expiresIn = readFiniteNumber(refreshPayload, "expires_in");
+  const updatedRecord = {
+    ...credentials.rawRecord,
+    access_token: readString(refreshPayload, "access_token") ?? credentials.accessToken,
+    expiry_date:
+      expiresIn === null
+        ? credentials.expiryDate
+        : host.now().valueOf() + expiresIn * 1000,
+    id_token: readString(refreshPayload, "id_token") ?? credentials.idToken,
+  };
+
+  await writeJsonFile(host, resolveGeminiOauthPath(host), updatedRecord);
+
+  const nextCredentials = parseGeminiCredentials(updatedRecord);
+
+  if (nextCredentials === null) {
+    throw new Error("Gemini token refresh wrote an invalid credentials file.");
+  }
+
+  return nextCredentials;
+};
+
+const resolveGeminiSource = async (host: RuntimeHost): Promise<GeminiResolvedSource | null> => {
   const authType = await readGeminiAuthType(host);
 
   if (authType === null || authType === "api-key" || authType === "vertex-ai") {
     return explicitNull;
   }
 
-  const hasOauth = await host.fileSystem.fileExists(resolveGeminiOauthPath(host));
-  const hasQuotaSnapshot = await host.fileSystem.fileExists(resolveGeminiQuotaPath(host));
-
-  return hasOauth && hasQuotaSnapshot ? "api" : explicitNull;
+  return (await host.fileSystem.fileExists(resolveGeminiOauthPath(host))) ? "api" : explicitNull;
 };
 
-const parseGeminiQuotaSnapshot = (
-  quotaPayload: unknown,
-  oauthPayload: unknown,
-  updatedAt: string,
-): ProviderRefreshActionResult<"gemini"> => {
+const parseGeminiQuotaBuckets = (quotaPayload: unknown): GeminiQuotaBucket[] => {
   if (!isRecord(quotaPayload)) {
-    return createRefreshError("gemini", "Gemini quota data is not valid JSON.");
+    return [];
   }
 
-  const oauthRecord = isRecord(oauthPayload) ? oauthPayload : explicitNull;
   const bucketsValue = quotaPayload["buckets"];
 
   if (!Array.isArray(bucketsValue)) {
-    return createRefreshError("gemini", "Gemini quota data did not include buckets.");
+    return [];
   }
 
-  const metrics = [];
+  const buckets: GeminiQuotaBucket[] = [];
 
   for (const bucket of bucketsValue) {
     if (!isRecord(bucket)) {
       continue;
     }
 
-    const modelId = readString(bucket, "modelId");
-    const remainingFractionValue = readFiniteNumber(bucket, "remainingFraction");
-    const resetTime = readString(bucket, "resetTime");
+    buckets.push({
+      modelId: readString(bucket, "modelId"),
+      remainingFraction: readFiniteNumber(bucket, "remainingFraction"),
+      resetTime: readString(bucket, "resetTime"),
+    });
+  }
 
-    if (remainingFractionValue === null || modelId === null) {
+  return buckets;
+};
+
+const parseGeminiJsonRecord = (bodyText: string): Record<string, unknown> | null => {
+  try {
+    const payload = parseJsonText(bodyText);
+
+    return isRecord(payload) ? payload : explicitNull;
+  } catch {
+    return explicitNull;
+  }
+};
+
+const discoverGeminiProjectId = async (
+  host: RuntimeHost,
+  accessToken: string,
+): Promise<string | null> => {
+  let projectsResponse;
+
+  try {
+    projectsResponse = await host.http.request(geminiProjectListEndpoint, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      method: "GET",
+      timeoutMs: geminiTimeoutMs,
+    });
+  } catch {
+    return explicitNull;
+  }
+
+  if (projectsResponse.statusCode !== 200) {
+    return explicitNull;
+  }
+
+  const projectsPayload = parseGeminiJsonRecord(projectsResponse.bodyText);
+
+  if (projectsPayload === null) {
+    return explicitNull;
+  }
+
+  const projects = projectsPayload["projects"];
+
+  if (!Array.isArray(projects)) {
+    return explicitNull;
+  }
+
+  for (const project of projects) {
+    if (!isRecord(project)) {
       continue;
     }
 
-    if (modelId.toLowerCase().includes("pro")) {
-      metrics.push({
-        detail: resetTime,
-        label: "Pro",
-        value: formatFractionPercent(remainingFractionValue),
-      });
+    const projectId = readString(project, "projectId");
+
+    if (projectId === null) {
+      continue;
     }
 
-    if (modelId.toLowerCase().includes("flash")) {
-      metrics.push({
-        detail: resetTime,
-        label: "Flash",
-        value: formatFractionPercent(remainingFractionValue),
-      });
+    if (projectId.startsWith("gen-lang-client")) {
+      return projectId;
+    }
+
+    const labels = readNestedRecord(project, "labels");
+
+    if (labels !== null && readString(labels, "generative-language") !== null) {
+      return projectId;
     }
   }
+
+  return explicitNull;
+};
+
+const fetchGeminiCodeAssistStatus = async (
+  host: RuntimeHost,
+  accessToken: string,
+): Promise<GeminiCodeAssistStatus> => {
+  let codeAssistResponse;
+
+  try {
+    codeAssistResponse = await host.http.request(geminiLoadCodeAssistEndpoint, {
+      body: JSON.stringify({
+        metadata: {
+          ideType: "GEMINI_CLI",
+          pluginType: "GEMINI",
+        },
+      }),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+      timeoutMs: geminiTimeoutMs,
+    });
+  } catch {
+    return {
+      projectId: explicitNull,
+      tier: explicitNull,
+    };
+  }
+
+  if (codeAssistResponse.statusCode !== 200) {
+    return {
+      projectId: explicitNull,
+      tier: explicitNull,
+    };
+  }
+
+  const codeAssistPayload = parseGeminiJsonRecord(codeAssistResponse.bodyText);
+
+  if (codeAssistPayload === null) {
+    return {
+      projectId: explicitNull,
+      tier: explicitNull,
+    };
+  }
+
+  const currentTier = readNestedRecord(codeAssistPayload, "currentTier");
+  const tierId = currentTier ? readString(currentTier, "id") : explicitNull;
+  const rawProject = codeAssistPayload["cloudaicompanionProject"];
+  let projectId: string | null = explicitNull;
+
+  if (typeof rawProject === "string" && rawProject.trim() !== "") {
+    projectId = rawProject.trim();
+  }
+
+  if (isRecord(rawProject)) {
+    projectId =
+      readString(rawProject, "id") ?? readString(rawProject, "projectId") ?? explicitNull;
+  }
+
+  return {
+    projectId,
+    tier:
+      tierId === "free-tier" || tierId === "legacy-tier" || tierId === "standard-tier"
+        ? tierId
+        : explicitNull,
+  };
+};
+
+const parseGeminiQuotaSnapshot = (
+  quotaPayload: unknown,
+  credentials: GeminiOAuthCredentials,
+  tier: GeminiTier,
+  updatedAt: string,
+): ProviderRefreshActionResult<"gemini"> => {
+  const metricsByLabel = new Map<string, { detail: string | null; value: number }>();
+
+  for (const bucket of parseGeminiQuotaBuckets(quotaPayload)) {
+    if (bucket.modelId === null || bucket.remainingFraction === null) {
+      continue;
+    }
+
+    if (bucket.modelId.toLowerCase().includes("pro")) {
+      const existingMetric = metricsByLabel.get("Pro");
+
+      if (existingMetric === undefined || bucket.remainingFraction < existingMetric.value) {
+        metricsByLabel.set("Pro", {
+          detail: bucket.resetTime,
+          value: bucket.remainingFraction,
+        });
+      }
+    }
+
+    if (bucket.modelId.toLowerCase().includes("flash")) {
+      const existingMetric = metricsByLabel.get("Flash");
+
+      if (existingMetric === undefined || bucket.remainingFraction < existingMetric.value) {
+        metricsByLabel.set("Flash", {
+          detail: bucket.resetTime,
+          value: bucket.remainingFraction,
+        });
+      }
+    }
+  }
+
+  const metrics = Array.from(metricsByLabel.entries()).map(([label, metric]) => ({
+    detail: metric.detail,
+    label,
+    value: formatFractionPercent(metric.value),
+  }));
 
   if (metrics.length === 0) {
     return createRefreshError("gemini", "Gemini quota data did not include Pro or Flash buckets.");
   }
+
+  const planLabel =
+    tier === "standard-tier"
+      ? "Paid"
+      : tier === "legacy-tier"
+        ? "Legacy"
+        : readJwtHostedDomain(credentials.rawRecord) !== null
+          ? "Workspace"
+          : tier === "free-tier"
+            ? "Free"
+            : explicitNull;
 
   return createRefreshSuccess(
     "gemini",
     "Gemini refreshed via API.",
     createSnapshot({
       accountEmail:
-        readString(quotaPayload, "email") ??
-        (oauthRecord ? readString(oauthRecord, "email") : explicitNull) ??
-        (oauthRecord ? readJwtEmail(oauthRecord, "id_token") : explicitNull) ??
-        (oauthRecord ? readJwtEmail(oauthRecord, "idToken") : explicitNull),
+        readString(credentials.rawRecord, "email") ??
+        readJwtEmail(credentials.rawRecord, "id_token") ??
+        readJwtEmail(credentials.rawRecord, "idToken"),
       metrics,
-      planLabel:
-        readString(quotaPayload, "plan") ??
-        readString(readNestedRecord(quotaPayload, "currentTier") ?? quotaPayload, "id"),
+      planLabel,
       sourceLabel: "api",
       updatedAt,
-      version: readString(quotaPayload, "version"),
+      version: readString(isRecord(quotaPayload) ? quotaPayload : {}, "version"),
     }),
   );
+};
+
+const readJwtHostedDomain = (record: Record<string, unknown>): string | null => {
+  const token =
+    readString(record, "id_token") ?? readString(record, "idToken") ?? explicitNull;
+
+  if (token === null) {
+    return explicitNull;
+  }
+
+  const payload = token.split(".")[1];
+
+  if (typeof payload !== "string" || payload === "") {
+    return explicitNull;
+  }
+
+  const normalizedPayload = payload.replaceAll("-", "+").replaceAll("_", "/");
+  const paddedPayload = `${normalizedPayload}${"=".repeat((4 - (normalizedPayload.length % 4)) % 4)}`;
+
+  try {
+    const decodedPayload = JSON.parse(atob(paddedPayload)) as unknown;
+
+    return isRecord(decodedPayload) ? readString(decodedPayload, "hd") : explicitNull;
+  } catch {
+    return explicitNull;
+  }
+};
+
+const fetchGeminiApiSnapshot = async (
+  host: RuntimeHost,
+): Promise<ProviderRefreshActionResult<"gemini">> => {
+  const oauthPayload = await readJsonFile(host, resolveGeminiOauthPath(host));
+
+  if (oauthPayload.status !== "ok") {
+    return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");
+  }
+
+  let credentials = parseGeminiCredentials(oauthPayload.value);
+
+  if (credentials === null) {
+    return createRefreshError("gemini", "Gemini OAuth credentials are invalid.");
+  }
+
+  if (
+    credentials.expiryDate !== null &&
+    Number.isFinite(credentials.expiryDate) &&
+    credentials.expiryDate <= host.now().valueOf()
+  ) {
+    try {
+      credentials = await refreshGeminiAccessToken(host, credentials);
+    } catch (error) {
+      if (error instanceof Error) {
+        return createRefreshError("gemini", error.message);
+      }
+
+      return createRefreshError("gemini", "Gemini token refresh failed.");
+    }
+  }
+
+  const fetchQuotaSnapshot = async (
+    currentCredentials: GeminiOAuthCredentials,
+    allowRefreshRetry: boolean,
+  ): Promise<ProviderRefreshActionResult<"gemini">> => {
+    const codeAssistStatus = await fetchGeminiCodeAssistStatus(host, currentCredentials.accessToken);
+    const projectId =
+      codeAssistStatus.projectId ??
+      (await discoverGeminiProjectId(host, currentCredentials.accessToken));
+
+    let quotaResponse;
+
+    try {
+      quotaResponse = await host.http.request(geminiQuotaEndpoint, {
+        body: JSON.stringify(projectId ? { project: projectId } : {}),
+        headers: {
+          Authorization: `Bearer ${currentCredentials.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        timeoutMs: geminiTimeoutMs,
+      });
+    } catch (error) {
+      if (error instanceof Error) {
+        return createRefreshError("gemini", error.message);
+      }
+
+      return createRefreshError("gemini", "Gemini quota request failed.");
+    }
+
+    if (quotaResponse.statusCode === 401) {
+      if (
+        !allowRefreshRetry ||
+        currentCredentials.refreshToken === null ||
+        currentCredentials.refreshToken === ""
+      ) {
+        return createRefreshError("gemini", "Gemini quota request unauthorized. Run `gemini auth login`.");
+      }
+
+      const previousAccessToken = currentCredentials.accessToken;
+      let refreshedCredentials: GeminiOAuthCredentials;
+
+      try {
+        refreshedCredentials = await refreshGeminiAccessToken(host, currentCredentials);
+      } catch (error) {
+        if (error instanceof Error) {
+          return createRefreshError("gemini", error.message);
+        }
+
+        return createRefreshError("gemini", "Gemini token refresh failed.");
+      }
+
+      if (refreshedCredentials.accessToken === previousAccessToken) {
+        return createRefreshError("gemini", "Gemini quota request unauthorized. Run `gemini auth login`.");
+      }
+
+      return await fetchQuotaSnapshot(refreshedCredentials, false);
+    }
+
+    if (quotaResponse.statusCode !== 200) {
+      return createRefreshError(
+        "gemini",
+        `Gemini quota request failed with HTTP ${quotaResponse.statusCode}.`,
+      );
+    }
+
+    let quotaPayload: unknown;
+
+    try {
+      quotaPayload = parseJsonText(quotaResponse.bodyText);
+    } catch {
+      return createRefreshError("gemini", "Gemini quota response was invalid.");
+    }
+
+    return parseGeminiQuotaSnapshot(
+      quotaPayload,
+      currentCredentials,
+      codeAssistStatus.tier,
+      host.now().toISOString(),
+    );
+  };
+
+  return await fetchQuotaSnapshot(credentials, true);
 };
 
 const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter => ({
@@ -138,17 +593,10 @@ const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter =
     const resolvedSource = await resolveGeminiSource(host);
 
     if (resolvedSource === null) {
-      return createRefreshError("gemini", "Gemini OAuth credentials or quota data are unavailable.");
+      return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");
     }
 
-    const quotaPayload = await readJsonFile(host, resolveGeminiQuotaPath(host));
-    const oauthPayload = await readJsonFile(host, resolveGeminiOauthPath(host));
-
-    if (quotaPayload.status !== "ok" || oauthPayload.status !== "ok") {
-      return createRefreshError("gemini", "Gemini OAuth credentials or quota data are unavailable.");
-    }
-
-    return parseGeminiQuotaSnapshot(quotaPayload.value, oauthPayload.value, host.now().toISOString());
+    return await fetchGeminiApiSnapshot(host);
   },
 });
 
@@ -156,7 +604,6 @@ export {
   createGeminiProviderAdapter,
   readGeminiAuthType,
   resolveGeminiOauthPath,
-  resolveGeminiQuotaPath,
   resolveGeminiSettingsPath,
   resolveGeminiSource,
 };
