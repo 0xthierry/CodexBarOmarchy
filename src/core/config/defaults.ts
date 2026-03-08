@@ -22,7 +22,7 @@ const stripTrailingPathSeparator = (value: string): string => {
 };
 
 const getDefaultHomeDirectory = (): string => {
-  const configuredHomeDirectory = Bun.env["HOME"];
+  const configuredHomeDirectory = process.env["HOME"];
 
   if (typeof configuredHomeDirectory === "string" && configuredHomeDirectory !== "") {
     return stripTrailingPathSeparator(configuredHomeDirectory);

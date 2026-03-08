@@ -1,10 +1,19 @@
-import { createDefaultConfig, normalizeConfig } from "@/core/config/schema.ts";
+/* eslint-disable import/no-nodejs-modules, sort-imports */
+
+import {
+  chmod as chmodFile,
+  mkdir as createDirectory,
+  readFile as readTextFile,
+  rm as removeFile,
+  rename as renameFile,
+  writeFile as writeTextFile,
+} from "node:fs/promises";
 import {
   defaultConfigFileMode,
   jsonIndentWidth,
   resolveDefaultConfigPath,
 } from "@/core/config/defaults.ts";
-import { $ } from "bun";
+import { createDefaultConfig, normalizeConfig } from "@/core/config/schema.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 
 interface ConfigStore {
@@ -43,7 +52,6 @@ interface FilePathContext {
 
 const decimalBase = 10;
 const missingPathIndex = -1;
-const octalBase = 8;
 const rootPathStartIndex = 0;
 
 const createTemporaryFileName = (): string => {
@@ -136,26 +144,28 @@ const createLoadOrCreateDefault = (context: FilePathContext) => {
 
 const defaultFileSystem: ConfigStoreFileSystem = {
   chmod: async (path: string, mode: number): Promise<void> => {
-    await $`chmod ${mode.toString(octalBase)} ${path}`.quiet();
+    await chmodFile(path, mode);
   },
   mkdir: async (path: string): Promise<void> => {
-    await $`mkdir -p ${path}`.quiet();
+    await createDirectory(path, { recursive: true });
   },
   readFile: async (path: string): Promise<string> => {
-    const fileContents = await Bun.file(path).text();
+    const fileContents = await readTextFile(path, "utf8");
 
     return fileContents;
   },
   rename: async (from: string, to: string): Promise<void> => {
-    await $`mv -f ${from} ${to}`.quiet();
+    await renameFile(from, to);
   },
   rm: async (path: string): Promise<void> => {
-    await $`rm -f ${path}`.quiet();
+    await removeFile(path, { force: true });
   },
   writeFile: async (path: string, contents: string, mode: number): Promise<void> => {
-    await $`install -m ${mode.toString(octalBase)} /dev/null ${path}`.quiet();
-    await Bun.write(path, contents);
-    await $`chmod ${mode.toString(octalBase)} ${path}`.quiet();
+    await writeTextFile(path, contents, {
+      encoding: "utf8",
+      mode,
+    });
+    await chmodFile(path, mode);
   },
 };
 

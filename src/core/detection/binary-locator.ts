@@ -1,3 +1,7 @@
+/* eslint-disable import/no-nodejs-modules */
+
+import { accessSync, constants } from "node:fs";
+import { delimiter, join } from "node:path";
 import { explicitNull } from "@/core/providers/shared.ts";
 
 interface BinaryLocator {
@@ -7,14 +11,36 @@ interface BinaryLocator {
 
 type SupportedBinaryName = "claude" | "codex" | "gemini";
 
-const findBinary = (binaryName: SupportedBinaryName): string | null => {
-  const resolvedBinary = Bun.which(binaryName);
+const getPathSegments = (): string[] => {
+  const configuredPath = process.env["PATH"];
 
-  if (typeof resolvedBinary !== "string") {
-    return explicitNull;
+  if (typeof configuredPath !== "string" || configuredPath === "") {
+    return [];
   }
 
-  return resolvedBinary;
+  return configuredPath.split(delimiter).filter((segment) => segment !== "");
+};
+
+const canExecute = (filePath: string): boolean => {
+  try {
+    accessSync(filePath, constants.X_OK);
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const findBinary = (binaryName: SupportedBinaryName): string | null => {
+  for (const directoryPath of getPathSegments()) {
+    const binaryPath = join(directoryPath, binaryName);
+
+    if (canExecute(binaryPath)) {
+      return binaryPath;
+    }
+  }
+
+  return explicitNull;
 };
 
 const isInstalled = (binaryName: SupportedBinaryName): boolean => findBinary(binaryName) !== null;
