@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "prepare": "lefthook install",
-    "build:shell": "bun build src/shell/main.ts --outfile dist/shell/main.js --target=node",
-    "build:preload": "bun build src/shell/preload.ts --outfile dist/shell/preload.cjs --target=node --format=cjs",
+    "build:shell": "bun build src/shell/main.ts --outfile dist/shell/main.js --target=node --external electron",
+    "build:preload": "bun build src/shell/preload.ts --outfile dist/shell/preload.cjs --target=node --format=cjs --external electron",
     "build:ui": "bun build src/ui/main.ts --outfile dist/ui/main.js --target=browser",
     "build:assets": "mkdir -p dist/ui dist/resources && cp src/ui/index.html dist/ui/index.html && cp src/ui/styles.css dist/ui/styles.css && cp resources/tray-icon.png dist/resources/tray-icon.png",
     "build": "bun run build:shell && bun run build:preload && bun run build:ui && bun run build:assets",

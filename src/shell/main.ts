@@ -17,6 +17,8 @@ const startupFailureExitCode = 1;
 const shellDirectoryPath = dirname(fileURLToPath(import.meta.url));
 const distDirectoryPath = join(shellDirectoryPath, "..");
 
+app.disableHardwareAcceleration();
+
 const createElectronTray = (): Tray => {
   const trayIcon = nativeImage
     .createFromPath(join(distDirectoryPath, "resources", "tray-icon.png"))
