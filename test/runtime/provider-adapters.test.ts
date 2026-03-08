@@ -173,8 +173,8 @@ const createHostFixture = async (
           return false;
         }
       },
-      readTextFile: async (filePath: string): Promise<string> =>  readFile(filePath, "utf8"),
-      realPath: async (filePath: string): Promise<string> =>  realpath(filePath),
+      readTextFile: async (filePath: string): Promise<string> => readFile(filePath, "utf8"),
+      realPath: async (filePath: string): Promise<string> => realpath(filePath),
       writeTextFile: async (filePath: string, contents: string): Promise<void> => {
         await writeText(filePath, contents);
       },
@@ -527,11 +527,7 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
   await writeText(claudeBinaryPath, "claude-binary\n");
   fixture.host.commands.which = async (command: string): Promise<string | null> =>
     command === "claude" ? claudeBinaryPath : explicitNull;
-  (fixture.host.commands.run) = (
-    command,
-    args,
-    options,
-  ) => {
+  fixture.host.commands.run = (command, args, options) => {
     const commandKey = createCommandKey(command, args);
 
     fixture.commandRuns.push({ args, command, options });
@@ -765,11 +761,7 @@ test("codex refreshes oauth tokens after an unauthorized usage response using cl
 
   fixture.host.commands.which = async (command: string): Promise<string | null> =>
     command === "codex" ? wrapperBinaryPath : explicitNull;
-  (fixture.host.commands.run) = (
-    command,
-    args,
-    options,
-  ) => {
+  fixture.host.commands.run = (command, args, options) => {
     const commandKey = createCommandKey(command, args);
 
     fixture.commandRuns.push({ args, command, options });
@@ -1580,7 +1572,7 @@ test("gemini returns a refresh error when the quota request throws", async () =>
       throw new Error("quota down");
     }
 
-    return  originalRequest(url, options);
+    return originalRequest(url, options);
   };
 
   const refreshResult = await providerAdapters.gemini.refresh({

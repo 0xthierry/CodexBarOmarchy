@@ -333,7 +333,9 @@ const refreshCodexAccessToken = async (
     last_refresh: host.now().toISOString(),
     tokens: {
       ...tokenRecord,
-      access_token: readString(refreshPayload, "access_token") ?? readCodexAccessToken(authFileRecord.rawRecord),
+      access_token:
+        readString(refreshPayload, "access_token") ??
+        readCodexAccessToken(authFileRecord.rawRecord),
       id_token: readString(refreshPayload, "id_token") ?? authFileRecord.idToken,
       refresh_token: readString(refreshPayload, "refresh_token") ?? authFileRecord.refreshToken,
     },
@@ -391,7 +393,9 @@ const parseCodexOAuthSnapshot = (
     ? readNestedRecord(usageResponse.rateLimit, "secondary_window")
     : explicitNull;
   const metrics = [];
-  const primaryPercent = primaryWindow ? readFiniteNumber(primaryWindow, "used_percent") : explicitNull;
+  const primaryPercent = primaryWindow
+    ? readFiniteNumber(primaryWindow, "used_percent")
+    : explicitNull;
   const secondaryPercent = secondaryWindow
     ? readFiniteNumber(secondaryWindow, "used_percent")
     : explicitNull;
@@ -524,7 +528,10 @@ const fetchCodexOAuthSnapshot = async (
         const refreshedAccessToken = readCodexAccessToken(authFileRecord.rawRecord);
 
         if (refreshedAccessToken === null || refreshedAccessToken === currentAccessToken) {
-          return createRefreshError("codex", "Codex OAuth request unauthorized. Run `codex login`.");
+          return createRefreshError(
+            "codex",
+            "Codex OAuth request unauthorized. Run `codex login`.",
+          );
         }
 
         return await fetchUsage(refreshedAccessToken, false);
@@ -623,7 +630,9 @@ const readCodexRpcResult = (
   const errorRecord = readNestedRecord(payload, "error");
 
   if (errorRecord !== null) {
-    throw new Error(readString(errorRecord, "message") ?? `Codex app-server failed for ${methodName}.`);
+    throw new Error(
+      readString(errorRecord, "message") ?? `Codex app-server failed for ${methodName}.`,
+    );
   }
 
   return readNestedRecord(payload, "result");
@@ -779,7 +788,9 @@ const resolveCodexSource = async (
 };
 
 const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => ({
-  login: async (): Promise<ReturnType<typeof createSuccessfulProviderActionResult<"codex", "login">>> => {
+  login: async (): Promise<
+    ReturnType<typeof createSuccessfulProviderActionResult<"codex", "login">>
+  > => {
     await host.spawnTerminal("codex", ["login"]);
 
     return createSuccessfulProviderActionResult("codex", "login", "Opened Codex login.");

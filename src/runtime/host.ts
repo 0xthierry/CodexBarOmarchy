@@ -33,10 +33,7 @@ interface RuntimeCommandRunOptions {
 }
 
 interface RuntimeCommandRunner {
-  createLineSession: (
-    command: string,
-    args: string[],
-  ) => Promise<RuntimeCommandLineSession>;
+  createLineSession: (command: string, args: string[]) => Promise<RuntimeCommandLineSession>;
   run: (
     command: string,
     args: string[],

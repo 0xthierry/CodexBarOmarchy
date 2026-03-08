@@ -7,6 +7,7 @@ Date: 2026-03-08
 Define the research-backed product and configuration contract for an Omarchy-native equivalent of CodexBar.
 
 Current scope for this document:
+
 - Linux app for Omarchy, not a 1:1 CodexBar clone
 - provider set limited to `codex`, `claude`, and `gemini`
 - same style of automatic provider detection for those three providers as CodexBar currently uses
@@ -18,6 +19,7 @@ Current scope for this document:
   - how config is persisted in a file while remaining editable from the UI
 
 Explicitly out of scope now:
+
 - `cursor`
 - `copilot`
 - every other CodexBar provider
@@ -25,12 +27,14 @@ Explicitly out of scope now:
 ## 1. Verified Omarchy Environment
 
 Verified facts:
+
 - Omarchy is an Arch-based Linux distribution built around Hyprland. Evidence: upstream Omarchy docs and repo, previously researched for this project.
 - Waybar is the primary top bar. Its default config includes a right-side tray area exposed via `group/tray-expander` and `tray`. Evidence: upstream `config/waybar/config.jsonc`.
 - Omarchy expects user-owned config in `~/.config`.
 - A tray app for Omarchy should target Linux tray/status-notifier behavior, not a macOS menu-bar implementation model.
 
 Implications for this app:
+
 - one tray icon integrated into Waybar's tray area
 - one popup/panel opened from that tray icon
 - file-backed config under `~/.config`
@@ -38,23 +42,27 @@ Implications for this app:
 ## 2. Product Definition
 
 The app is a compact Omarchy tray utility for:
+
 - Codex
 - Claude
 - Gemini
 
 Primary UX:
+
 - one tray icon in the Omarchy Waybar tray
 - one popup window/panel opened from that tray icon
 - a provider switcher at the top of the popup when more than one provider is enabled
 - one provider card view at a time
 
 Provider defaults for this version:
+
 - `codex`, `claude`, and `gemini` should use the same automatic detection pattern as CodexBar:
   - detect whether the provider CLI is installed
   - enable that provider automatically when installed
   - if none of the three CLIs are installed, keep `codex` enabled as the fallback default
 
 Evidence:
+
 - `.repositories/CodexBar/Sources/CodexBar/SettingsStore+ProviderDetection.swift:14-60`
 
 This is the required default behavior for our app, not just a recommendation.
@@ -62,6 +70,7 @@ This is the required default behavior for our app, not just a recommendation.
 ## 3. Shared UI Contract Derived From CodexBar
 
 CodexBar's provider detail/settings screen is built from:
+
 - a header with provider name, subtitle, refresh button, and enable switch
 - an info grid with state/source/version/updated/account/plan fields
 - inline metric rows
@@ -70,6 +79,7 @@ CodexBar's provider detail/settings screen is built from:
 - an `Options` section for toggles
 
 Evidence:
+
 - detail screen structure: `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderDetailView.swift:45-101`
 - header actions: `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderDetailView.swift:154-183`
 - info-grid fields: `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderDetailView.swift:234-260`
@@ -82,6 +92,7 @@ Our app should preserve that information hierarchy, but adapt it to Linux UI pri
 ### Shared screen-level actions for every provider
 
 Every provider screen in our app must support:
+
 - enable/disable provider
 - refresh provider now
 - view current state
@@ -93,6 +104,7 @@ Every provider screen in our app must support:
 - view latest error when present
 
 These are grounded in CodexBar's shared provider detail view:
+
 - `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderDetailView.swift:49-56`
 - `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderDetailView.swift:170-183`
 - `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderDetailView.swift:242-260`
@@ -108,6 +120,7 @@ The app must run initial provider auto-detection exactly for `codex`, `claude`, 
 5. persist the resulting enabled-state into the config file
 
 CodexBar evidence:
+
 - binary detection and fallback behavior:
   - `.repositories/CodexBar/Sources/CodexBar/SettingsStore+ProviderDetection.swift:16-27`
 - persistence path for provider config changes:
@@ -115,6 +128,7 @@ CodexBar evidence:
   - `.repositories/CodexBar/Sources/CodexBar/SettingsStore+ConfigPersistence.swift:145-176`
 
 Omarchy app contract:
+
 - run detection on first launch and whenever the user explicitly requests re-detection
 - store the detected enabled-state in config so the result is user-overridable afterward
 - once the user manually changes enabled-state, that persisted choice wins until they change it again
@@ -122,6 +136,7 @@ Omarchy app contract:
 ## 5. Provider Definitions
 
 Interpretation rule:
+
 - the provider sections below document both:
   - researched CodexBar behavior
   - the exact provider-screen contract we want in the Omarchy app
@@ -132,6 +147,7 @@ Interpretation rule:
 #### UI data shown in CodexBar
 
 Verified:
+
 - labels are `Session` and `Weekly`; Codex supports credits
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Codex/CodexProviderDescriptor.swift:10-39`
 - Codex provider screen exposes:
@@ -148,6 +164,7 @@ Verified:
 #### Codex screen contract for our app
 
 The Codex provider screen must allow the user to:
+
 - enable/disable Codex
 - refresh Codex
 - see provider state/source/version/updated/account/plan
@@ -165,12 +182,14 @@ The Codex provider screen must allow the user to:
 - start/restart Codex login/auth flow
 
 Notes:
+
 - `OpenAI cookies` picker is only visible when `OpenAI web extras` is enabled in CodexBar. Preserve that dependency.
 - `OpenAI web extras` are optional in implementation, but the config surface still belongs in the spec because the user asked to map all options/actions in the provider screen.
 
 #### How Codex source selection works
 
 Verified:
+
 - explicit source modes are `auto`, `oauth`, `cli`
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Codex/CodexProviderImplementation.swift:48-53`
 - in app runtime, `auto` resolves to:
@@ -183,12 +202,14 @@ Verified:
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Codex/CodexProviderDescriptor.swift:47-60`
 
 Omarchy app contract:
+
 - app auto-order must be `OAuth -> CLI`
 - web/dashboard data is optional enrichment, not the primary app fetch path
 
 #### How Codex data is collected
 
 Verified:
+
 - OAuth credentials from `$CODEX_HOME/auth.json` or `~/.codex/auth.json`
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Codex/CodexOAuth/CodexOAuthCredentials.swift:48-68`
 - OAuth usage fetch through ChatGPT/OpenAI backend usage endpoint
@@ -205,6 +226,7 @@ Verified:
 #### UI data shown in CodexBar
 
 Verified:
+
 - labels are `Session`, `Weekly`, and `Sonnet`
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Claude/ClaudeProviderDescriptor.swift:10-42`
 - Claude provider screen exposes:
@@ -229,6 +251,7 @@ Verified:
 #### Claude screen contract for our app
 
 The Claude provider screen must allow the user to:
+
 - enable/disable Claude
 - refresh Claude
 - see provider state/source/version/updated/account/plan
@@ -256,11 +279,13 @@ The Claude provider screen must allow the user to:
 - trigger recovery action equivalent to `Open Terminal` when OAuth repair requires it
 
 Linux note:
+
 - the macOS-specific Keychain terminology should be translated in the eventual Linux UI, but the underlying behavior choice still needs an equivalent configuration concept
 
 #### How Claude source selection works
 
 Verified:
+
 - explicit source modes are `auto`, `oauth`, `web`, `cli`
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Claude/ClaudeProviderImplementation.swift:55-62`
 - in app runtime, `auto` resolves to:
@@ -274,12 +299,14 @@ Verified:
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Claude/ClaudeProviderDescriptor.swift:45-68`
 
 Omarchy app contract:
+
 - app auto-order must be `OAuth -> CLI -> Web`
 - token-account/session-token mode must remain available from the provider screen because it is part of the current Claude settings surface
 
 #### How Claude data is collected
 
 Verified:
+
 - OAuth credentials from environment, CodexBar cache, `~/.claude/.credentials.json`, and Claude Code keychain data
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Claude/ClaudeOAuth/ClaudeOAuthCredentials.swift:103-236`
 - OAuth fetch path through Anthropic OAuth usage API
@@ -294,6 +321,7 @@ Verified:
 #### UI data shown in CodexBar
 
 Verified:
+
 - labels are `Pro` and `Flash`
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Gemini/GeminiProviderDescriptor.swift:10-40`
 - Gemini provider screen has no provider-specific settings rows in CodexBar
@@ -306,6 +334,7 @@ Verified:
 #### Gemini screen contract for our app
 
 The Gemini provider screen must allow the user to:
+
 - enable/disable Gemini
 - refresh Gemini
 - see provider state/source/version/updated/account/plan
@@ -316,6 +345,7 @@ There are no provider-specific pickers, fields, token-account controls, or toggl
 #### How Gemini source selection works
 
 Verified:
+
 - single API strategy only
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Gemini/GeminiProviderDescriptor.swift:35-63`
 - unsupported auth types are rejected:
@@ -324,6 +354,7 @@ Verified:
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Gemini/GeminiStatusProbe.swift:151-172`
 
 Omarchy app contract:
+
 - Gemini is API-only
 - no browser-cookie mode
 - no alternate CLI/web source picker is needed
@@ -331,6 +362,7 @@ Omarchy app contract:
 #### How Gemini data is collected
 
 Verified:
+
 - auth type from `~/.gemini/settings.json`
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Gemini/GeminiStatusProbe.swift:135-149`
 - OAuth credentials from `~/.gemini/oauth_creds.json`
@@ -350,6 +382,7 @@ Verified:
 CodexBar persists provider config in a JSON file and writes it automatically after UI changes.
 
 Verified CodexBar behavior:
+
 - config file path: `~/.codexbar/config.json`
   - `.repositories/CodexBar/Sources/CodexBarCore/Config/CodexBarConfigStore.swift:73-77`
 - config is JSON, normalized, pretty-printed, saved atomically, and chmodded to `0600`
@@ -359,6 +392,7 @@ Verified CodexBar behavior:
   - `.repositories/CodexBar/Sources/CodexBar/SettingsStore+ConfigPersistence.swift:145-176`
 
 Omarchy app contract:
+
 - persist config in a file
 - all provider screen changes must update in-memory state immediately and then persist to disk
 - file location for our app should be:
@@ -402,6 +436,7 @@ Minimum persisted fields:
 ```
 
 Notes:
+
 - This is the Omarchy-app schema proposal, not a literal CodexBar schema.
 - It is intentionally narrower than CodexBar's generic multi-provider config.
 
@@ -455,6 +490,7 @@ Notes:
 ## 8. Minimal Build Contract For The Next Phase
 
 When implementation starts, the first useful slice should provide:
+
 - one Omarchy tray icon
 - popup with provider switcher for `codex`, `claude`, `gemini`
 - initial auto-detection for those three CLIs with the same logic CodexBar uses
@@ -469,6 +505,7 @@ When implementation starts, the first useful slice should provide:
 - periodic refresh plus manual refresh
 
 Deferred:
+
 - Cursor
 - Copilot
 - every non-target provider
@@ -483,17 +520,20 @@ Deferred:
 The app must run as a tray-resident app compatible with Omarchy's Waybar tray model.
 
 Validation:
+
 - Manual: launch in an Omarchy session and verify the icon appears in Waybar's tray area or tray expander.
 
 ### AC-02 Must
 
 On first launch, the app must auto-detect `codex`, `claude`, and `gemini` CLIs and enable providers using the same logic as CodexBar:
+
 - enable `codex` if Codex is installed
 - enable `claude` if Claude is installed
 - enable `gemini` if Gemini is installed
 - if none are installed, keep `codex` enabled
 
 Validation:
+
 - Automated: unit tests for provider-detection logic.
 - Manual: test with different CLI availability combinations.
 - Repository basis: `.repositories/CodexBar/Sources/CodexBar/SettingsStore+ProviderDetection.swift:14-60`
@@ -503,11 +543,13 @@ Validation:
 The popup must show only enabled providers from the supported set (`codex`, `claude`, `gemini`) in persisted order, and it must remember the last selected provider.
 
 Validation:
+
 - Manual: enable/disable providers, reorder them, restart the app, and verify ordering/selection persistence.
 
 ### AC-04 Must
 
 Each provider screen must expose the shared fields:
+
 - state
 - source
 - version
@@ -518,6 +560,7 @@ Each provider screen must expose the shared fields:
 - enable/disable action
 
 Validation:
+
 - Automated: view-model tests.
 - Manual: compare against section 3.
 
@@ -526,6 +569,7 @@ Validation:
 Each provider screen must expose the provider-specific options/actions defined in section 7.
 
 Validation:
+
 - Automated: provider-screen model tests for visible controls.
 - Manual: inspect each provider screen and verify all listed controls exist.
 
@@ -534,40 +578,47 @@ Validation:
 Config must be persisted in a file and remain user-editable through the UI.
 
 This means:
+
 - user changes in the provider screens update runtime state immediately
 - the updated config is saved automatically to disk
 - the config file survives restart
 
 Validation:
+
 - Automated: config store/load/save tests.
 - Manual: change settings in the UI, restart the app, and verify the changes persist.
 
 ### AC-07 Must
 
 Provider source selection must match this spec:
+
 - Codex app auto: `OAuth -> CLI`
 - Claude app auto: `OAuth -> CLI -> Web`
 - Gemini: `API only`
 
 Validation:
+
 - Automated: provider-specific source-selection tests.
 - Manual: diagnostics/logging should show the chosen source label.
 
 ### AC-08 Must
 
 Refresh must support both:
+
 - periodic background refresh
 - manual/user-initiated refresh
 
 The popup must remain responsive during refresh.
 
 Validation:
+
 - Automated: store refresh-state tests.
 - Manual: open the popup while a slow provider refresh is running.
 
 ## 10. Source Index
 
 ### Shared/provider-screen references
+
 - provider detail layout:
   - `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderDetailView.swift:45-101`
 - provider header actions:
@@ -580,6 +631,7 @@ Validation:
   - `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderSettingsRows.swift:203-281`
 
 ### Provider references
+
 - Codex implementation:
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Codex/CodexProviderImplementation.swift:7-198`
 - Claude implementation:
@@ -602,6 +654,7 @@ Validation:
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Gemini/GeminiStatusProbe.swift:135-294`
 
 ### Detection/config references
+
 - provider auto-detection:
   - `.repositories/CodexBar/Sources/CodexBar/SettingsStore+ProviderDetection.swift:14-60`
 - config persistence:
