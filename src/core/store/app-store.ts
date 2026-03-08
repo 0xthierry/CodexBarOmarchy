@@ -4,6 +4,12 @@ import {
   getProviderView,
 } from "@/core/store/state.ts";
 import {
+  createDefaultProviderAdapters,
+  dispatchLoginAction,
+  dispatchRecoveryAction,
+  dispatchRefreshAction,
+} from "@/core/actions/provider-adapter.ts";
+import {
   setClaudeConfig,
   setCodexConfig,
   setGeminiConfig,
@@ -15,6 +21,10 @@ import { initializeConfigWithDetection } from "@/core/detection/provider-detecti
 
 type AppStoreState = ReturnType<typeof createInitialAppStoreState>;
 type AppStoreConfig = AppStoreState["config"];
+type LoginActionResult = Awaited<ReturnType<typeof dispatchLoginAction>>;
+type ProviderAdapters = ReturnType<typeof createDefaultProviderAdapters>;
+type RecoveryActionResult = Awaited<ReturnType<typeof dispatchRecoveryAction>>;
+type RefreshActionResult = Awaited<ReturnType<typeof dispatchRefreshAction>>;
 interface BinaryLocator {
   findBinary: (binaryName: "claude" | "codex" | "gemini") => string | null;
   isInstalled: (binaryName: "claude" | "codex" | "gemini") => boolean;
@@ -39,6 +49,9 @@ interface AppStore {
   getProviderView: (providerId: ProviderId) => ProviderView;
   getState: () => AppStoreState;
   initialize: (options?: { forceRedetection?: boolean }) => Promise<AppStoreState>;
+  loginProvider: (providerId: ProviderId) => Promise<LoginActionResult>;
+  repairProvider: (providerId: ProviderId) => Promise<RecoveryActionResult>;
+  refreshProvider: (providerId: ProviderId) => Promise<RefreshActionResult>;
   selectProvider: (providerId: ProviderId) => Promise<AppStoreState>;
   setClaudeConfig: (
     updater: (
@@ -63,6 +76,7 @@ interface AppStore {
 interface CreateAppStoreOptions {
   binaryLocator: BinaryLocator;
   configStore: ConfigStore;
+  providerAdapters?: ProviderAdapters;
 }
 
 interface AppStoreRuntime {
@@ -191,7 +205,32 @@ const createSetProviderOrder =
     return nextState;
   };
 
+const createLoginProvider =
+  (providerAdapters: ProviderAdapters) =>
+  async (providerId: ProviderId): Promise<LoginActionResult> => {
+    const actionResult = await dispatchLoginAction(providerAdapters, providerId);
+
+    return actionResult;
+  };
+
+const createRefreshProvider =
+  (providerAdapters: ProviderAdapters) =>
+  async (providerId: ProviderId): Promise<RefreshActionResult> => {
+    const actionResult = await dispatchRefreshAction(providerAdapters, providerId);
+
+    return actionResult;
+  };
+
+const createRepairProvider =
+  (providerAdapters: ProviderAdapters) =>
+  async (providerId: ProviderId): Promise<RecoveryActionResult> => {
+    const actionResult = await dispatchRecoveryAction(providerAdapters, providerId);
+
+    return actionResult;
+  };
+
 const createAppStore = (options: CreateAppStoreOptions): AppStore => {
+  const providerAdapters = options.providerAdapters ?? createDefaultProviderAdapters();
   const runtime = createAppStoreRuntime();
   const initialize = createInitialize(options, runtime);
   const persistConfig = createPersistConfig(options.configStore, runtime);
@@ -201,6 +240,9 @@ const createAppStore = (options: CreateAppStoreOptions): AppStore => {
       getProviderView(runtime.currentState.config, providerId),
     getState: (): AppStoreState => runtime.currentState,
     initialize,
+    loginProvider: createLoginProvider(providerAdapters),
+    refreshProvider: createRefreshProvider(providerAdapters),
+    repairProvider: createRepairProvider(providerAdapters),
     selectProvider: createSelectProvider(persistConfig, runtime),
     setClaudeConfig: createSetClaudeConfig(persistConfig, runtime),
     setCodexConfig: createSetCodexConfig(persistConfig, runtime),

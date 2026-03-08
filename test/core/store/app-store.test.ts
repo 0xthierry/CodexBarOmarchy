@@ -12,6 +12,30 @@ const resolveVoid = async (): Promise<void> => {
   await Promise.resolve();
 };
 
+const expectProviderActions = (
+  actions: {
+    login: { actionName: "login"; supported: boolean };
+    refresh: { actionName: "refresh"; supported: boolean };
+    repair: { actionName: "repair"; supported: boolean };
+  },
+  supportsRecovery: boolean,
+): void => {
+  expect(actions).toEqual({
+    login: {
+      actionName: "login",
+      supported: true,
+    },
+    refresh: {
+      actionName: "refresh",
+      supported: true,
+    },
+    repair: {
+      actionName: "repair",
+      supported: supportsRecovery,
+    },
+  });
+};
+
 interface FakeConfigStore {
   deleteIfPresent: () => Promise<void>;
   filePath: string;
@@ -79,6 +103,21 @@ const createFakeConfigStore = (initialConfig: OmarchyAgentBarConfig): FakeConfig
   };
 };
 
+const createInitializedAppStore = async (): Promise<ReturnType<typeof createAppStore>> => {
+  const appStore = createAppStore({
+    binaryLocator: createTestBinaryLocator({
+      claude: true,
+      codex: true,
+      gemini: true,
+    }),
+    configStore: createFakeConfigStore(createDefaultConfig()),
+  });
+
+  await appStore.initialize();
+
+  return appStore;
+};
+
 test("initializes with the persisted config and exposes provider views", async () => {
   const initialConfig = createDefaultConfig();
   const configStore = createFakeConfigStore({
@@ -106,6 +145,54 @@ test("initializes with the persisted config and exposes provider views", async (
   expect(state.enabledProviderIds).toEqual(["codex", "gemini"]);
   expect(codexView.id).toBe("codex");
   expect(codexView.settings.availableUsageSources).toEqual(["auto", "oauth", "cli"]);
+});
+
+test("exposes the codex provider screen settings and shared actions", async () => {
+  const appStore = await createInitializedAppStore();
+  const resolvedCodexView = appStore.getProviderView("codex");
+
+  if (resolvedCodexView.id !== "codex") {
+    throw new TypeError("Expected the Codex provider view.");
+  }
+
+  expectProviderActions(resolvedCodexView.actions, false);
+  expect(resolvedCodexView.settings.availableCookieSources).toEqual(["auto", "manual", "off"]);
+  expect(resolvedCodexView.settings.availableUsageSources).toEqual(["auto", "oauth", "cli"]);
+});
+
+test("exposes the claude provider screen settings and recovery action", async () => {
+  const appStore = await createInitializedAppStore();
+  const resolvedClaudeView = appStore.getProviderView("claude");
+
+  if (resolvedClaudeView.id !== "claude") {
+    throw new TypeError("Expected the Claude provider view.");
+  }
+
+  expectProviderActions(resolvedClaudeView.actions, true);
+  expect(resolvedClaudeView.settings.availableCookieSources).toEqual(["auto", "manual"]);
+  expect(resolvedClaudeView.settings.availablePromptPolicies).toEqual([
+    "never_prompt",
+    "only_on_user_action",
+    "always_allow_prompts",
+  ]);
+  expect(resolvedClaudeView.settings.availableUsageSources).toEqual([
+    "auto",
+    "oauth",
+    "web",
+    "cli",
+  ]);
+});
+
+test("exposes the gemini provider screen shared actions without provider-specific settings", async () => {
+  const appStore = await createInitializedAppStore();
+  const resolvedGeminiView = appStore.getProviderView("gemini");
+
+  if (resolvedGeminiView.id !== "gemini") {
+    throw new TypeError("Expected the Gemini provider view.");
+  }
+
+  expectProviderActions(resolvedGeminiView.actions, false);
+  expect(resolvedGeminiView.settings).toEqual({});
 });
 
 test("updates runtime state immediately and persists provider enablement changes", async () => {

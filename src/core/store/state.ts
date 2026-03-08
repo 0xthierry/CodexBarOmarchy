@@ -18,6 +18,7 @@ interface AppStoreState {
 }
 
 interface ProviderViewBase<ProviderValue extends ProviderId> {
+  actions: ProviderActionsView;
   config: OmarchyAgentBarConfig["providers"][ProviderValue];
   enabled: boolean;
   id: ProviderValue;
@@ -44,6 +45,32 @@ interface GeminiProviderView extends ProviderViewBase<"gemini"> {
 }
 
 type ProviderView = ClaudeProviderView | CodexProviderView | GeminiProviderView;
+
+interface ProviderActionView<ActionValue extends "login" | "refresh" | "repair"> {
+  actionName: ActionValue;
+  supported: boolean;
+}
+
+interface ProviderActionsView {
+  login: ProviderActionView<"login">;
+  refresh: ProviderActionView<"refresh">;
+  repair: ProviderActionView<"repair">;
+}
+
+const createProviderActionsView = (supportsRecovery: boolean): ProviderActionsView => ({
+  login: {
+    actionName: "login",
+    supported: true,
+  },
+  refresh: {
+    actionName: "refresh",
+    supported: true,
+  },
+  repair: {
+    actionName: "repair",
+    supported: supportsRecovery,
+  },
+});
 
 const isProviderEnabled = (config: OmarchyAgentBarConfig, providerId: ProviderId): boolean => {
   if (providerId === "claude") {
@@ -82,6 +109,7 @@ const getFirstEnabledProviderId = (config: OmarchyAgentBarConfig): ProviderId | 
 const getProviderView = (config: OmarchyAgentBarConfig, providerId: ProviderId): ProviderView => {
   if (providerId === "claude") {
     return {
+      actions: createProviderActionsView(true),
       config: config.providers.claude,
       enabled: config.providers.claude.enabled,
       id: "claude",
@@ -96,6 +124,7 @@ const getProviderView = (config: OmarchyAgentBarConfig, providerId: ProviderId):
 
   if (providerId === "codex") {
     return {
+      actions: createProviderActionsView(false),
       config: config.providers.codex,
       enabled: config.providers.codex.enabled,
       id: "codex",
@@ -108,6 +137,7 @@ const getProviderView = (config: OmarchyAgentBarConfig, providerId: ProviderId):
   }
 
   return {
+    actions: createProviderActionsView(false),
     config: config.providers.gemini,
     enabled: config.providers.gemini.enabled,
     id: "gemini",
