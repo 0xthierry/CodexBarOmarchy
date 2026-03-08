@@ -92,5 +92,6 @@ export {
   createDefaultProviderEnabledMap,
   normalizeConfig,
   type OmarchyAgentBarConfig,
+  type ProviderEnabledMap,
   type ProviderConfigurations,
 };
