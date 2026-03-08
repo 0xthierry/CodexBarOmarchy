@@ -4,6 +4,9 @@
     "lib": ["ESNext"],
     "module": "Preserve",
     "moduleResolution": "bundler",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
