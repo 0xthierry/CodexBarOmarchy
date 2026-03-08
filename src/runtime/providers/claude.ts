@@ -9,7 +9,7 @@ import type {
   ProviderRefreshActionResult,
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
-import type { RuntimeHost } from "@/runtime/host.ts";
+import type { RuntimeCommandResult, RuntimeHost } from "@/runtime/host.ts";
 import {
   createRefreshError,
   createRefreshSuccess,
@@ -19,6 +19,7 @@ import {
   joinPath,
   parseJsonText,
   readBoolean,
+  readCommandVersion,
   readFiniteNumber,
   readJsonFile,
   readJwtEmail,
@@ -141,10 +142,16 @@ const resolveClaudeTokenFilePath = async (host: RuntimeHost): Promise<string | n
   return explicitNull;
 };
 
+const resolveClaudeVersion = async (host: RuntimeHost): Promise<string | null> =>
+  await readCommandVersion(host, "claude", ["--version"], claudeTimeoutMs);
+
 const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMetricInput[] => {
   const metrics: ProviderMetricInput[] = [];
 
-  if (usageRecord.fiveHour?.utilization !== null && usageRecord.fiveHour?.utilization !== undefined) {
+  if (
+    usageRecord.fiveHour?.utilization !== null &&
+    usageRecord.fiveHour?.utilization !== undefined
+  ) {
     metrics.push({
       detail: usageRecord.fiveHour.resetsAt,
       label: "Session",
@@ -152,7 +159,10 @@ const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMe
     });
   }
 
-  if (usageRecord.sevenDay?.utilization !== null && usageRecord.sevenDay?.utilization !== undefined) {
+  if (
+    usageRecord.sevenDay?.utilization !== null &&
+    usageRecord.sevenDay?.utilization !== undefined
+  ) {
     metrics.push({
       detail: usageRecord.sevenDay.resetsAt,
       label: "Weekly",
@@ -273,6 +283,36 @@ const parseClaudeAuthStatus = (value: unknown): ClaudeAuthStatusResponse | null 
   };
 };
 
+const readClaudeAuthStatus = async (
+  host: RuntimeHost,
+): Promise<{
+  authStatus: ClaudeAuthStatusResponse | null;
+  commandResult: RuntimeCommandResult;
+}> => {
+  const commandResult = await host.commands.run("claude", ["auth", "status", "--json"], {
+    timeoutMs: claudeTimeoutMs,
+  });
+
+  if (commandResult.exitCode !== 0) {
+    return {
+      authStatus: explicitNull,
+      commandResult,
+    };
+  }
+
+  try {
+    return {
+      authStatus: parseClaudeAuthStatus(parseJsonText(commandResult.stdout)),
+      commandResult,
+    };
+  } catch {
+    return {
+      authStatus: explicitNull,
+      commandResult,
+    };
+  }
+};
+
 const parseClaudeStatsRecord = (value: unknown): ClaudeStatsRecord | null => {
   if (!isRecord(value)) {
     return explicitNull;
@@ -280,7 +320,9 @@ const parseClaudeStatsRecord = (value: unknown): ClaudeStatsRecord | null => {
 
   const latestActivityRecord = readLatestDatedRecord(value["dailyActivity"]);
   const latestTokenRecord = readLatestDatedRecord(value["dailyModelTokens"]);
-  const tokensByModel = latestTokenRecord ? readNestedRecord(latestTokenRecord, "tokensByModel") : explicitNull;
+  const tokensByModel = latestTokenRecord
+    ? readNestedRecord(latestTokenRecord, "tokensByModel")
+    : explicitNull;
   let tokenCount = 0;
   let tokenCountFound = false;
 
@@ -299,10 +341,16 @@ const parseClaudeStatsRecord = (value: unknown): ClaudeStatsRecord | null => {
 
   return {
     latestDate,
-    messageCount: latestActivityRecord ? readFiniteNumber(latestActivityRecord, "messageCount") : explicitNull,
-    sessionCount: latestActivityRecord ? readFiniteNumber(latestActivityRecord, "sessionCount") : explicitNull,
+    messageCount: latestActivityRecord
+      ? readFiniteNumber(latestActivityRecord, "messageCount")
+      : explicitNull,
+    sessionCount: latestActivityRecord
+      ? readFiniteNumber(latestActivityRecord, "sessionCount")
+      : explicitNull,
     tokenCount: tokenCountFound ? tokenCount : explicitNull,
-    toolCallCount: latestActivityRecord ? readFiniteNumber(latestActivityRecord, "toolCallCount") : explicitNull,
+    toolCallCount: latestActivityRecord
+      ? readFiniteNumber(latestActivityRecord, "toolCallCount")
+      : explicitNull,
   };
 };
 
@@ -374,7 +422,9 @@ const refreshClaudeAccessToken = async (
   }
 
   const refreshPayload = parseJsonText(refreshResponse.bodyText);
-  const accountRecord = isRecord(refreshPayload) ? readNestedRecord(refreshPayload, "account") : explicitNull;
+  const accountRecord = isRecord(refreshPayload)
+    ? readNestedRecord(refreshPayload, "account")
+    : explicitNull;
 
   if (!isRecord(refreshPayload)) {
     throw new Error("Claude OAuth refresh returned invalid JSON.");
@@ -386,10 +436,7 @@ const refreshClaudeAccessToken = async (
     accountEmail:
       (accountRecord ? readString(accountRecord, "email_address") : explicitNull) ??
       (accountRecord ? readString(accountRecord, "email") : explicitNull),
-    expiresAt:
-      expiresIn === null
-        ? credentials.expiresAt
-        : host.now().valueOf() + expiresIn * 1000,
+    expiresAt: expiresIn === null ? credentials.expiresAt : host.now().valueOf() + expiresIn * 1000,
     refreshToken: readString(refreshPayload, "refresh_token") ?? credentials.refreshToken,
     scopes:
       readString(refreshPayload, "scope")
@@ -465,7 +512,9 @@ const fetchClaudeWebUsage = async (
   });
 
   if (organizationsResponse.statusCode < 200 || organizationsResponse.statusCode >= 300) {
-    throw new Error(`Claude organizations request failed with HTTP ${organizationsResponse.statusCode}.`);
+    throw new Error(
+      `Claude organizations request failed with HTTP ${organizationsResponse.statusCode}.`,
+    );
   }
 
   const organizationsPayload = parseJsonText(organizationsResponse.bodyText);
@@ -525,7 +574,9 @@ const parseClaudeOAuthSnapshot = (
   oauthPayload: ClaudeOAuthUsageResponse,
   credentials: ClaudeCredentialRecord,
   rawCredentials: Record<string, unknown>,
+  fallbackAccountEmail: string | null,
   updatedAt: string,
+  version: string | null,
 ): ProviderRefreshActionResult<"claude"> => {
   const metrics = collectClaudeMetrics(oauthPayload);
   const oauthRecord = readNestedRecord(rawCredentials, "claudeAiOauth");
@@ -541,11 +592,13 @@ const parseClaudeOAuthSnapshot = (
       accountEmail:
         readString(rawCredentials, "email") ??
         (oauthRecord ? readJwtEmail(oauthRecord, "idToken") : explicitNull) ??
-        (oauthRecord ? readJwtEmail(oauthRecord, "id_token") : explicitNull),
+        (oauthRecord ? readJwtEmail(oauthRecord, "id_token") : explicitNull) ??
+        fallbackAccountEmail,
       metrics,
       planLabel: credentials.subscriptionType,
       sourceLabel: "oauth",
       updatedAt,
+      version,
     }),
   );
 };
@@ -553,6 +606,7 @@ const parseClaudeOAuthSnapshot = (
 const parseClaudeCliSnapshot = (
   commandOutput: string,
   updatedAt: string,
+  version: string | null,
 ): ProviderRefreshActionResult<"claude"> => {
   const sessionMatch = commandOutput.match(/Current session[^\n]*?([0-9]{1,3})%/);
   const weeklyMatch = commandOutput.match(/Current week \(all models\)[^\n]*?([0-9]{1,3})%/);
@@ -589,6 +643,7 @@ const parseClaudeCliSnapshot = (
       planLabel: planMatch?.[1]?.trim() ?? explicitNull,
       sourceLabel: "cli",
       updatedAt,
+      version,
     }),
   );
 };
@@ -607,6 +662,7 @@ const parseClaudeWebSnapshot = (
         planLabel: readString(tokenPayload, "planLabel"),
         sourceLabel: "web",
         updatedAt,
+        version: explicitNull,
       }),
     );
   }
@@ -615,7 +671,9 @@ const parseClaudeWebSnapshot = (
     return createRefreshError("claude", "Claude token file is not valid JSON.");
   }
 
-  const usageRecord = createClaudeOAuthUsageResponse(readNestedRecord(tokenPayload, "usage") ?? tokenPayload);
+  const usageRecord = createClaudeOAuthUsageResponse(
+    readNestedRecord(tokenPayload, "usage") ?? tokenPayload,
+  );
   const accountRecord = readNestedRecord(tokenPayload, "account");
   const metrics = usageRecord ? collectClaudeMetrics(usageRecord) : [];
 
@@ -634,6 +692,7 @@ const parseClaudeWebSnapshot = (
       planLabel: readString(tokenPayload, "plan"),
       sourceLabel: "web",
       updatedAt,
+      version: explicitNull,
     }),
   );
 };
@@ -659,6 +718,7 @@ const parseClaudeLocalSnapshot = (
       planLabel: authStatus.subscriptionType,
       sourceLabel: "local",
       updatedAt,
+      version: explicitNull,
     }),
   );
 };
@@ -666,9 +726,7 @@ const parseClaudeLocalSnapshot = (
 const fetchClaudeLocalSnapshot = async (
   host: RuntimeHost,
 ): Promise<ProviderRefreshActionResult<"claude">> => {
-  const authStatusCommandResult = await host.commands.run("claude", ["auth", "status", "--json"], {
-    timeoutMs: claudeTimeoutMs,
-  });
+  const { authStatus, commandResult: authStatusCommandResult } = await readClaudeAuthStatus(host);
 
   if (authStatusCommandResult.exitCode !== 0) {
     return createRefreshError(
@@ -676,16 +734,6 @@ const fetchClaudeLocalSnapshot = async (
       authStatusCommandResult.stderr || "Claude auth status command failed.",
     );
   }
-
-  let authStatusPayload: unknown;
-
-  try {
-    authStatusPayload = parseJsonText(authStatusCommandResult.stdout);
-  } catch {
-    return createRefreshError("claude", "Claude auth status returned invalid JSON.");
-  }
-
-  const authStatus = parseClaudeAuthStatus(authStatusPayload);
 
   if (authStatus === null) {
     return createRefreshError("claude", "Claude auth status returned invalid JSON.");
@@ -708,7 +756,10 @@ const fetchClaudeLocalSnapshot = async (
   }
 
   const statePayload = await readJsonFile(host, resolveClaudeStatePath(host));
-  const stateRecord = statePayload.status === "ok" && isRecord(statePayload.value) ? statePayload.value : explicitNull;
+  const stateRecord =
+    statePayload.status === "ok" && isRecord(statePayload.value)
+      ? statePayload.value
+      : explicitNull;
 
   return parseClaudeLocalSnapshot(
     authStatus,
@@ -815,12 +866,16 @@ const fetchClaudeOAuthSnapshot = async (
     }
 
     const currentCredentials: ClaudeCredentialRecord = credentials;
+    const authStatusResult = await readClaudeAuthStatus(host);
+    const version = await resolveClaudeVersion(host);
 
     return parseClaudeOAuthSnapshot(
       usagePayload,
       currentCredentials,
       currentCredentials.rawRecord,
+      authStatusResult.authStatus?.email ?? explicitNull,
       host.now().toISOString(),
+      version,
     );
   };
 
@@ -872,7 +927,9 @@ const resolveClaudeSource = async (
 };
 
 const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter => ({
-  login: async (): Promise<ReturnType<typeof createSuccessfulProviderActionResult<"claude", "login">>> => {
+  login: async (): Promise<
+    ReturnType<typeof createSuccessfulProviderActionResult<"claude", "login">>
+  > => {
     await host.spawnTerminal("claude", ["login"]);
 
     return createSuccessfulProviderActionResult("claude", "login", "Opened Claude login.");
@@ -895,7 +952,10 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
     const resolvedSource = await resolveClaudeSource(host, providerConfig.source, providerConfig);
 
     if (resolvedSource === null) {
-      return createRefreshError("claude", "Claude credentials, CLI, or token file are unavailable.");
+      return createRefreshError(
+        "claude",
+        "Claude credentials, CLI, or token file are unavailable.",
+      );
     }
 
     const refreshViaCli = async (): Promise<ProviderRefreshActionResult<"claude">> => {
@@ -903,16 +963,30 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
         input: claudeStatusInput,
         timeoutMs: claudeTimeoutMs,
       });
+      const version = await resolveClaudeVersion(host);
 
       if (commandResult.exitCode === 0) {
-        const cliResult = parseClaudeCliSnapshot(commandResult.stdout, host.now().toISOString());
+        const cliResult = parseClaudeCliSnapshot(
+          commandResult.stdout,
+          host.now().toISOString(),
+          version,
+        );
 
         if (cliResult.status !== "error") {
           return cliResult;
         }
       }
 
-      return await fetchClaudeLocalSnapshot(host);
+      const localResult = await fetchClaudeLocalSnapshot(host);
+
+      if (localResult.snapshot !== null) {
+        localResult.snapshot = {
+          ...localResult.snapshot,
+          version,
+        };
+      }
+
+      return localResult;
     };
 
     const refreshViaWeb = async (): Promise<ProviderRefreshActionResult<"claude">> => {
@@ -921,10 +995,20 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
 
       if (manualSessionToken !== null) {
         try {
-          return parseClaudeWebSnapshot(
+          const webResult = parseClaudeWebSnapshot(
             await fetchClaudeWebUsage(host, manualSessionToken),
             updatedAt,
           );
+          const version = await resolveClaudeVersion(host);
+
+          if (webResult.snapshot !== null) {
+            webResult.snapshot = {
+              ...webResult.snapshot,
+              version,
+            };
+          }
+
+          return webResult;
         } catch (error) {
           if (error instanceof Error) {
             return createRefreshError("claude", error.message);
@@ -946,7 +1030,17 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
         return createRefreshError("claude", "Claude token file could not be read.");
       }
 
-      return parseClaudeWebSnapshot(tokenPayload.value, updatedAt);
+      const webResult = parseClaudeWebSnapshot(tokenPayload.value, updatedAt);
+      const version = await resolveClaudeVersion(host);
+
+      if (webResult.snapshot !== null) {
+        webResult.snapshot = {
+          ...webResult.snapshot,
+          version,
+        };
+      }
+
+      return webResult;
     };
 
     if (resolvedSource === "oauth") {
@@ -1000,7 +1094,9 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       "Reloaded the Claude token file.",
     );
   },
-  repair: async (): Promise<ReturnType<typeof createSuccessfulProviderActionResult<"claude", "repair">>> => {
+  repair: async (): Promise<
+    ReturnType<typeof createSuccessfulProviderActionResult<"claude", "repair">>
+  > => {
     await host.spawnTerminal("claude", []);
 
     return createSuccessfulProviderActionResult(

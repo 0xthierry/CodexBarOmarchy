@@ -7,8 +7,8 @@ import {
   type ProviderRefreshActionResult,
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
-import type { ProviderRuntimeSnapshot } from "@/core/store/runtime-state.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
+import type { ProviderRuntimeSnapshot } from "@/core/store/runtime-state.ts";
 
 type ProviderId = "claude" | "codex" | "gemini";
 
@@ -128,7 +128,9 @@ const readStringArray = (record: Record<string, unknown>, key: string): string[]
     return explicitNull;
   }
 
-  const strings = value.filter((entry): entry is string => typeof entry === "string" && entry !== "");
+  const strings = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry !== "",
+  );
 
   return strings.length === value.length ? strings : explicitNull;
 };
@@ -246,6 +248,29 @@ const readJwtEmail = (record: Record<string, unknown>, key: string): string | nu
   return readString(payload, "email");
 };
 
+const readCommandVersion = async (
+  host: RuntimeHost,
+  command: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<string | null> => {
+  if ((await host.commands.which(command)) === null) {
+    return explicitNull;
+  }
+
+  const commandResult = await host.commands.run(command, args, {
+    timeoutMs,
+  });
+
+  if (commandResult.exitCode !== 0) {
+    return explicitNull;
+  }
+
+  const versionToken = commandResult.stdout.match(/([0-9]+(?:\.[0-9]+){1,}[0-9A-Za-z.-]*)/u)?.[1];
+
+  return typeof versionToken === "string" && versionToken !== "" ? versionToken : explicitNull;
+};
+
 export {
   createRefreshError,
   createRefreshSuccess,
@@ -257,6 +282,7 @@ export {
   parseJsonText,
   readArray,
   readBoolean,
+  readCommandVersion,
   readFiniteNumber,
   readJsonFile,
   readJwtEmail,

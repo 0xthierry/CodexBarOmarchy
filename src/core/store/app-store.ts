@@ -420,23 +420,23 @@ const createRefreshProvider =
     markProviderActionRunning(runtime, providerId, "refresh");
     const refreshOperation = (async (): Promise<RefreshActionResult> => {
       try {
-        let actionResult: RefreshActionResult;
-
-        try {
-          actionResult = await dispatchRefreshAction(
-            providerAdapters,
-            runtime.currentState.config,
-            providerId,
-          );
-        } catch (error) {
-          actionResult = createRefreshActionResult(
-            createErrorProviderActionResult(
+        const actionResult = await (async (): Promise<RefreshActionResult> => {
+          try {
+            return await dispatchRefreshAction(
+              providerAdapters,
+              runtime.currentState.config,
               providerId,
-              "refresh",
-              error instanceof Error ? error.message : `${providerId} refresh failed.`,
-            ),
-          );
-        }
+            );
+          } catch (error) {
+            return createRefreshActionResult(
+              createErrorProviderActionResult(
+                providerId,
+                "refresh",
+                error instanceof Error ? error.message : `${providerId} refresh failed.`,
+              ),
+            );
+          }
+        })();
 
         applyActionResult(runtime, providerId, actionResult);
 

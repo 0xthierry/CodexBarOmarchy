@@ -15,6 +15,7 @@ import {
   isRecord,
   joinPath,
   parseJsonText,
+  readCommandVersion,
   readFiniteNumber,
   readJsonFile,
   readJwtEmail,
@@ -23,7 +24,8 @@ import {
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
 
-const geminiLoadCodeAssistEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
+const geminiLoadCodeAssistEndpoint =
+  "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
 const geminiProjectListEndpoint = "https://cloudresourcemanager.googleapis.com/v1/projects";
 const geminiQuotaEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
 const geminiRefreshEndpoint = "https://oauth2.googleapis.com/token";
@@ -63,6 +65,9 @@ const resolveGeminiSettingsPath = (host: RuntimeHost): string =>
 
 const resolveGeminiOauthPath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".gemini", "oauth_creds.json");
+
+const resolveGeminiVersion = async (host: RuntimeHost): Promise<string | null> =>
+  await readCommandVersion(host, "gemini", ["--version"], geminiTimeoutMs);
 
 const readGeminiAuthType = async (host: RuntimeHost): Promise<string | null> => {
   const settingsPayload = await readJsonFile(host, resolveGeminiSettingsPath(host));
@@ -177,9 +182,7 @@ const refreshGeminiAccessToken = async (
     ...credentials.rawRecord,
     access_token: readString(refreshPayload, "access_token") ?? credentials.accessToken,
     expiry_date:
-      expiresIn === null
-        ? credentials.expiryDate
-        : host.now().valueOf() + expiresIn * 1000,
+      expiresIn === null ? credentials.expiryDate : host.now().valueOf() + expiresIn * 1000,
     id_token: readString(refreshPayload, "id_token") ?? credentials.idToken,
   };
 
@@ -355,8 +358,7 @@ const fetchGeminiCodeAssistStatus = async (
   }
 
   if (isRecord(rawProject)) {
-    projectId =
-      readString(rawProject, "id") ?? readString(rawProject, "projectId") ?? explicitNull;
+    projectId = readString(rawProject, "id") ?? readString(rawProject, "projectId") ?? explicitNull;
   }
 
   return {
@@ -373,6 +375,7 @@ const parseGeminiQuotaSnapshot = (
   credentials: GeminiOAuthCredentials,
   tier: GeminiTier,
   updatedAt: string,
+  version: string | null,
 ): ProviderRefreshActionResult<"gemini"> => {
   const metricsByLabel = new Map<string, { detail: string | null; value: number }>();
 
@@ -437,14 +440,13 @@ const parseGeminiQuotaSnapshot = (
       planLabel,
       sourceLabel: "api",
       updatedAt,
-      version: readString(isRecord(quotaPayload) ? quotaPayload : {}, "version"),
+      version: readString(isRecord(quotaPayload) ? quotaPayload : {}, "version") ?? version,
     }),
   );
 };
 
 const readJwtHostedDomain = (record: Record<string, unknown>): string | null => {
-  const token =
-    readString(record, "id_token") ?? readString(record, "idToken") ?? explicitNull;
+  const token = readString(record, "id_token") ?? readString(record, "idToken") ?? explicitNull;
 
   if (token === null) {
     return explicitNull;
@@ -503,7 +505,10 @@ const fetchGeminiApiSnapshot = async (
     currentCredentials: GeminiOAuthCredentials,
     allowRefreshRetry: boolean,
   ): Promise<ProviderRefreshActionResult<"gemini">> => {
-    const codeAssistStatus = await fetchGeminiCodeAssistStatus(host, currentCredentials.accessToken);
+    const codeAssistStatus = await fetchGeminiCodeAssistStatus(
+      host,
+      currentCredentials.accessToken,
+    );
     const projectId =
       codeAssistStatus.projectId ??
       (await discoverGeminiProjectId(host, currentCredentials.accessToken));
@@ -534,7 +539,10 @@ const fetchGeminiApiSnapshot = async (
         currentCredentials.refreshToken === null ||
         currentCredentials.refreshToken === ""
       ) {
-        return createRefreshError("gemini", "Gemini quota request unauthorized. Run `gemini auth login`.");
+        return createRefreshError(
+          "gemini",
+          "Gemini quota request unauthorized. Run `gemini auth login`.",
+        );
       }
 
       const previousAccessToken = currentCredentials.accessToken;
@@ -551,7 +559,10 @@ const fetchGeminiApiSnapshot = async (
       }
 
       if (refreshedCredentials.accessToken === previousAccessToken) {
-        return createRefreshError("gemini", "Gemini quota request unauthorized. Run `gemini auth login`.");
+        return createRefreshError(
+          "gemini",
+          "Gemini quota request unauthorized. Run `gemini auth login`.",
+        );
       }
 
       return await fetchQuotaSnapshot(refreshedCredentials, false);
@@ -577,6 +588,7 @@ const fetchGeminiApiSnapshot = async (
       currentCredentials,
       codeAssistStatus.tier,
       host.now().toISOString(),
+      await resolveGeminiVersion(host),
     );
   };
 
@@ -584,7 +596,9 @@ const fetchGeminiApiSnapshot = async (
 };
 
 const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter => ({
-  login: async (): Promise<ReturnType<typeof createSuccessfulProviderActionResult<"gemini", "login">>> => {
+  login: async (): Promise<
+    ReturnType<typeof createSuccessfulProviderActionResult<"gemini", "login">>
+  > => {
     await host.spawnTerminal("gemini", ["auth", "login"]);
 
     return createSuccessfulProviderActionResult("gemini", "login", "Opened Gemini login.");

@@ -1,7 +1,16 @@
 /* eslint-disable import/no-relative-parent-imports, max-lines-per-function, max-statements, no-magic-numbers, promise/prefer-await-to-then, sort-imports, typescript-eslint/promise-function-async */
 
 import { afterEach, expect, test } from "bun:test";
-import { access, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createDefaultConfig } from "../../src/core/config/schema.ts";
@@ -55,7 +64,8 @@ const updatedAt = "2026-03-08T12:00:00.000Z";
 
 const createConfig = (): ReturnType<typeof createDefaultConfig> => createDefaultConfig();
 
-const createCommandKey = (command: string, args: string[]): string => `${command} ${args.join(" ")}`.trim();
+const createCommandKey = (command: string, args: string[]): string =>
+  `${command} ${args.join(" ")}`.trim();
 
 const createJsonResponse = (body: unknown, statusCode = 200): RuntimeHttpResponse => ({
   bodyText: JSON.stringify(body),
@@ -82,14 +92,16 @@ const writeJson = async (filePath: string, value: unknown): Promise<void> => {
   await writeText(filePath, `${JSON.stringify(value, null, 2)}\n`);
 };
 
-const createHostFixture = async (input: {
-  commands?: Record<string, CommandFixture>;
-  env?: Record<string, string | undefined>;
-  httpResponses?: Record<string, RuntimeHttpResponse[]>;
-  lineSessions?: Record<string, string[]>;
-  now?: string;
-  which?: Record<string, string | null>;
-} = {}): Promise<HostFixture> => {
+const createHostFixture = async (
+  input: {
+    commands?: Record<string, CommandFixture>;
+    env?: Record<string, string | undefined>;
+    httpResponses?: Record<string, RuntimeHttpResponse[]>;
+    lineSessions?: Record<string, string[]>;
+    now?: string;
+    which?: Record<string, string | null>;
+  } = {},
+): Promise<HostFixture> => {
   const homeDirectory = await mkdtemp(join(tmpdir(), "omarchy-agent-bar-runtime-"));
   cleanupPaths.push(homeDirectory);
   const commandRuns: CommandRunRecord[] = [];
@@ -161,8 +173,8 @@ const createHostFixture = async (input: {
           return false;
         }
       },
-      readTextFile: async (filePath: string): Promise<string> => await readFile(filePath, "utf8"),
-      realPath: async (filePath: string): Promise<string> => await realpath(filePath),
+      readTextFile: async (filePath: string): Promise<string> =>  readFile(filePath, "utf8"),
+      realPath: async (filePath: string): Promise<string> =>  realpath(filePath),
       writeTextFile: async (filePath: string, contents: string): Promise<void> => {
         await writeText(filePath, contents);
       },
@@ -182,7 +194,7 @@ const createHostFixture = async (input: {
           throw new Error(`No fake HTTP response registered for ${method} ${url}.`);
         }
 
-        return responseQueue.shift() as RuntimeHttpResponse;
+        return responseQueue.shift()!;
       },
     },
     now: (): Date => new Date(input.now ?? updatedAt),
@@ -296,7 +308,7 @@ test("codex refreshes against the real usage API contract", async () => {
           "ChatGPT-Account-Id": "acct_123",
         },
         method: "GET",
-        timeoutMs: 15000,
+        timeoutMs: 15_000,
       },
       url: "https://chatgpt.com/backend-api/wham/usage",
     },
@@ -475,21 +487,6 @@ test("codex returns a refresh error when the usage request throws", async () => 
 test("claude refreshes expired oauth credentials and persists the rotated tokens", async () => {
   const fixture = await createHostFixture({
     httpResponses: {
-      "POST https://platform.claude.com/v1/oauth/token": [
-        createJsonResponse({
-          access_token: "claude-new-access-token",
-          account: {
-            email_address: "claude@example.com",
-          },
-          expires_in: 3600,
-          organization: {
-            name: "Claude Max",
-          },
-          refresh_token: "claude-new-refresh-token",
-          scope: "user:inference user:profile",
-          token_type: "Bearer",
-        }),
-      ],
       "GET https://api.anthropic.com/api/oauth/usage": [
         createJsonResponse({
           five_hour: {
@@ -506,6 +503,21 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
           },
         }),
       ],
+      "POST https://platform.claude.com/v1/oauth/token": [
+        createJsonResponse({
+          access_token: "claude-new-access-token",
+          account: {
+            email_address: "claude@example.com",
+          },
+          expires_in: 3600,
+          organization: {
+            name: "Claude Max",
+          },
+          refresh_token: "claude-new-refresh-token",
+          scope: "user:inference user:profile",
+          token_type: "Bearer",
+        }),
+      ],
     },
   });
   const claudeBinaryPath = join(fixture.homeDirectory, "bin", "claude");
@@ -515,8 +527,7 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
   await writeText(claudeBinaryPath, "claude-binary\n");
   fixture.host.commands.which = async (command: string): Promise<string | null> =>
     command === "claude" ? claudeBinaryPath : explicitNull;
-  fixture.commandRuns.length = 0;
-  (fixture.host.commands.run as HostFixture["host"]["commands"]["run"]) = (
+  (fixture.host.commands.run) = (
     command,
     args,
     options,
@@ -531,6 +542,14 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
         stderr: "",
         stdout:
           'TOKEN_URL:"https://platform.claude.com/v1/oauth/token",CLIENT_ID:"9d1c250a-e61b-44d9-88ed-5944d1962f5e"',
+      });
+    }
+
+    if (commandKey === "claude --version") {
+      return Promise.resolve({
+        exitCode: 0,
+        stderr: "",
+        stdout: "2.1.71 (Claude Code)\n",
       });
     }
 
@@ -568,6 +587,7 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
   expect(refreshResult.snapshot?.accountEmail).toBe("claude@example.com");
   expect(refreshResult.snapshot?.planLabel).toBe("default_claude_max_5x");
+  expect(refreshResult.snapshot?.version).toBe("2.1.71");
   expect(refreshResult.snapshot?.metrics).toEqual([
     {
       detail: "soon",
@@ -595,15 +615,88 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
   ]);
 });
 
+test("claude oauth falls back to auth status for account email and cli version", async () => {
+  const fixture = await createHostFixture({
+    commands: {
+      "claude --version": {
+        exitCode: 0,
+        stderr: "",
+        stdout: "2.1.71 (Claude Code)\n",
+      },
+      "claude auth status --json": {
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          email: "claude@example.com",
+          loggedIn: true,
+          subscriptionType: "max",
+        }),
+      },
+    },
+    httpResponses: {
+      "GET https://api.anthropic.com/api/oauth/usage": [
+        createJsonResponse({
+          five_hour: {
+            resets_at: "soon",
+            utilization: 33,
+          },
+          seven_day: {
+            resets_at: "later",
+            utilization: 61,
+          },
+          seven_day_sonnet: {
+            resets_at: "later",
+            utilization: 47,
+          },
+        }),
+      ],
+    },
+    which: {
+      claude: "/usr/bin/claude",
+    },
+  });
+  const credentialsPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  await writeJson(credentialsPath, {
+    claudeAiOauth: {
+      accessToken: "claude-valid-access-token",
+      expiresAt: Date.parse("2026-03-09T00:00:00.000Z"),
+      refreshToken: "claude-refresh-token",
+      subscriptionType: "max",
+    },
+  });
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config: createConfig(),
+    providerConfig: {
+      ...createConfig().providers.claude,
+      source: "oauth",
+    },
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
+  expect(refreshResult.snapshot?.accountEmail).toBe("claude@example.com");
+  expect(refreshResult.snapshot?.planLabel).toBe("max");
+  expect(refreshResult.snapshot?.version).toBe("2.1.71");
+  expect(fixture.httpRequests.map((request) => request.url)).toEqual([
+    "https://api.anthropic.com/api/oauth/usage",
+  ]);
+});
+
 test("codex refreshes oauth tokens after an unauthorized usage response using client metadata discovered from the installed cli", async () => {
   const fixture = await createHostFixture({
     httpResponses: {
       "GET https://chatgpt.com/backend-api/wham/usage": [
-        createJsonResponse({
-          error: {
-            message: "Unauthorized",
+        createJsonResponse(
+          {
+            error: {
+              message: "Unauthorized",
+            },
           },
-        }, 401),
+          401,
+        ),
         createJsonResponse({
           credits: {
             balance: 7.25,
@@ -672,8 +765,7 @@ test("codex refreshes oauth tokens after an unauthorized usage response using cl
 
   fixture.host.commands.which = async (command: string): Promise<string | null> =>
     command === "codex" ? wrapperBinaryPath : explicitNull;
-  fixture.commandRuns.length = 0;
-  (fixture.host.commands.run as HostFixture["host"]["commands"]["run"]) = (
+  (fixture.host.commands.run) = (
     command,
     args,
     options,
@@ -731,7 +823,7 @@ test("codex refreshes oauth tokens after an unauthorized usage response using cl
       "Content-Type": "application/json",
     },
     method: "POST",
-    timeoutMs: 15000,
+    timeoutMs: 15_000,
   });
 });
 
@@ -949,6 +1041,11 @@ test("claude auto falls back to local stats when oauth usage is rate limited and
         stderr: "",
         stdout: "Unknown skill: status\n",
       },
+      "claude --version": {
+        exitCode: 0,
+        stderr: "",
+        stdout: "2.1.71 (Claude Code)\n",
+      },
       "claude auth status --json": {
         exitCode: 0,
         stderr: "",
@@ -1017,7 +1114,7 @@ test("claude auto falls back to local stats when oauth usage is rate limited and
       {
         date: "2026-03-08",
         tokensByModel: {
-          "claude-opus-4-6": 12000,
+          "claude-opus-4-6": 12_000,
           "claude-sonnet-4-5-20250929": 3000,
         },
       },
@@ -1036,6 +1133,7 @@ test("claude auto falls back to local stats when oauth usage is rate limited and
   expect(refreshResult.snapshot?.sourceLabel).toBe("local");
   expect(refreshResult.snapshot?.accountEmail).toBe("local@example.com");
   expect(refreshResult.snapshot?.planLabel).toBe("max");
+  expect(refreshResult.snapshot?.version).toBe("2.1.71");
   expect(refreshResult.snapshot?.metrics).toEqual([
     {
       detail: "2026-03-08",
@@ -1058,10 +1156,9 @@ test("claude auto falls back to local stats when oauth usage is rate limited and
       value: "23",
     },
   ]);
-  expect(fixture.commandRuns.map((record) => createCommandKey(record.command, record.args))).toEqual([
-    "claude",
-    "claude auth status --json",
-  ]);
+  expect(
+    fixture.commandRuns.map((record) => createCommandKey(record.command, record.args)),
+  ).toEqual(["claude", "claude --version", "claude auth status --json"]);
 });
 
 test("claude local fallback rejects logged-out auth status even when stats are still present", async () => {
@@ -1165,15 +1262,14 @@ test("claude returns a refresh error when the oauth usage request throws", async
 
 test("gemini refreshes oauth credentials and fetches live quota data through the api path", async () => {
   const fixture = await createHostFixture({
+    commands: {
+      "gemini --version": {
+        exitCode: 0,
+        stderr: "",
+        stdout: "0.29.7\n",
+      },
+    },
     httpResponses: {
-      "POST https://oauth2.googleapis.com/token": [
-        createJsonResponse({
-          access_token: "gemini-new-access-token",
-          expires_in: 3600,
-          id_token: "header.eyJlbWFpbCI6ImdlbWluaUBleGFtcGxlLmNvbSJ9.signature",
-          token_type: "Bearer",
-        }),
-      ],
       "POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist": [
         createJsonResponse({
           cloudaicompanionProject: "gen-lang-client-123",
@@ -1198,11 +1294,26 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
           ],
         }),
       ],
+      "POST https://oauth2.googleapis.com/token": [
+        createJsonResponse({
+          access_token: "gemini-new-access-token",
+          expires_in: 3600,
+          id_token: "header.eyJlbWFpbCI6ImdlbWluaUBleGFtcGxlLmNvbSJ9.signature",
+          token_type: "Bearer",
+        }),
+      ],
     },
   });
   const oauthPath = join(fixture.homeDirectory, ".gemini", "oauth_creds.json");
   const settingsPath = join(fixture.homeDirectory, ".gemini", "settings.json");
-  const geminiPackageRoot = join(fixture.homeDirectory, "tooling", "lib", "node_modules", "@google", "gemini-cli");
+  const geminiPackageRoot = join(
+    fixture.homeDirectory,
+    "tooling",
+    "lib",
+    "node_modules",
+    "@google",
+    "gemini-cli",
+  );
   const geminiRealBinaryPath = join(geminiPackageRoot, "dist", "index.js");
   const geminiShimPath = join(fixture.homeDirectory, "bin", "gemini");
   const oauthClientPath = join(
@@ -1258,6 +1369,7 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
   expect(refreshResult.snapshot?.sourceLabel).toBe("api");
   expect(refreshResult.snapshot?.accountEmail).toBe("gemini@example.com");
   expect(refreshResult.snapshot?.planLabel).toBe("Free");
+  expect(refreshResult.snapshot?.version).toBe("0.29.7");
   expect(refreshResult.snapshot?.metrics).toEqual([
     {
       detail: "tomorrow",
@@ -1280,14 +1392,6 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
 test("gemini retries an unauthorized quota response only once", async () => {
   const fixture = await createHostFixture({
     httpResponses: {
-      "POST https://oauth2.googleapis.com/token": [
-        createJsonResponse({
-          access_token: "gemini-new-access-token",
-          expires_in: 3600,
-          id_token: "header.eyJlbWFpbCI6ImdlbWluaUBleGFtcGxlLmNvbSJ9.signature",
-          token_type: "Bearer",
-        }),
-      ],
       "POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist": [
         createJsonResponse({
           cloudaicompanionProject: "gen-lang-client-123",
@@ -1320,11 +1424,26 @@ test("gemini retries an unauthorized quota response only once", async () => {
           401,
         ),
       ],
+      "POST https://oauth2.googleapis.com/token": [
+        createJsonResponse({
+          access_token: "gemini-new-access-token",
+          expires_in: 3600,
+          id_token: "header.eyJlbWFpbCI6ImdlbWluaUBleGFtcGxlLmNvbSJ9.signature",
+          token_type: "Bearer",
+        }),
+      ],
     },
   });
   const oauthPath = join(fixture.homeDirectory, ".gemini", "oauth_creds.json");
   const settingsPath = join(fixture.homeDirectory, ".gemini", "settings.json");
-  const geminiPackageRoot = join(fixture.homeDirectory, "tooling", "lib", "node_modules", "@google", "gemini-cli");
+  const geminiPackageRoot = join(
+    fixture.homeDirectory,
+    "tooling",
+    "lib",
+    "node_modules",
+    "@google",
+    "gemini-cli",
+  );
   const geminiRealBinaryPath = join(geminiPackageRoot, "dist", "index.js");
   const geminiShimPath = join(fixture.homeDirectory, "bin", "gemini");
   const oauthClientPath = join(
@@ -1461,7 +1580,7 @@ test("gemini returns a refresh error when the quota request throws", async () =>
       throw new Error("quota down");
     }
 
-    return await originalRequest(url, options);
+    return  originalRequest(url, options);
   };
 
   const refreshResult = await providerAdapters.gemini.refresh({
