@@ -1,35 +1,53 @@
+/* eslint-disable import/consistent-type-specifier-style, no-duplicate-imports, sort-imports */
+
+import { createDefaultConfig } from "@/core/config/schema.ts";
 import {
   claudeCookieSources,
   claudePromptPolicies,
   claudeUsageSources,
 } from "@/core/providers/claude.ts";
 import { codexCookieSources, codexUsageSources } from "@/core/providers/codex.ts";
-import { createDefaultConfig } from "@/core/config/schema.ts";
+import type { ProviderId } from "@/core/providers/provider-id.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
+import { createDefaultProviderRuntimeStateMap } from "@/core/store/runtime-state.ts";
+import type {
+  ProviderActionViewMap,
+  ProviderRuntimeSnapshot,
+  ProviderRuntimeStateMap,
+} from "@/core/store/runtime-state.ts";
 
 type OmarchyAgentBarConfig = ReturnType<typeof createDefaultConfig>;
-type ProviderId = "claude" | "codex" | "gemini";
+
+interface SchedulerState {
+  active: boolean;
+  intervalMs: number | null;
+}
 
 interface AppStoreState {
   config: OmarchyAgentBarConfig;
   enabledProviderIds: ProviderId[];
   providerViews: ProviderView[];
+  scheduler: SchedulerState;
   selectedProviderId: ProviderId;
 }
 
 interface ProviderViewBase<ProviderValue extends ProviderId> {
-  actions: ProviderActionsView;
+  actions: ProviderActionViewMap;
   config: OmarchyAgentBarConfig["providers"][ProviderValue];
   enabled: boolean;
   id: ProviderValue;
   selected: boolean;
+  status: ProviderRuntimeSnapshot;
 }
 
 interface ClaudeProviderView extends ProviderViewBase<"claude"> {
   settings: {
+    activeTokenAccountIndex: number;
     availableCookieSources: readonly string[];
     availablePromptPolicies: readonly string[];
     availableUsageSources: readonly string[];
+    showPromptPolicyControl: boolean;
+    tokenAccounts: OmarchyAgentBarConfig["providers"]["claude"]["tokenAccounts"];
   };
 }
 
@@ -37,6 +55,8 @@ interface CodexProviderView extends ProviderViewBase<"codex"> {
   settings: {
     availableCookieSources: readonly string[];
     availableUsageSources: readonly string[];
+    showCookieSourceControl: boolean;
+    showManualCookieField: boolean;
   };
 }
 
@@ -46,31 +66,10 @@ interface GeminiProviderView extends ProviderViewBase<"gemini"> {
 
 type ProviderView = ClaudeProviderView | CodexProviderView | GeminiProviderView;
 
-interface ProviderActionView<ActionValue extends "login" | "refresh" | "repair"> {
-  actionName: ActionValue;
-  supported: boolean;
-}
-
-interface ProviderActionsView {
-  login: ProviderActionView<"login">;
-  refresh: ProviderActionView<"refresh">;
-  repair: ProviderActionView<"repair">;
-}
-
-const createProviderActionsView = (supportsRecovery: boolean): ProviderActionsView => ({
-  login: {
-    actionName: "login",
-    supported: true,
-  },
-  refresh: {
-    actionName: "refresh",
-    supported: true,
-  },
-  repair: {
-    actionName: "repair",
-    supported: supportsRecovery,
-  },
-});
+const defaultSchedulerState: SchedulerState = {
+  active: false,
+  intervalMs: explicitNull,
+};
 
 const isProviderEnabled = (config: OmarchyAgentBarConfig, providerId: ProviderId): boolean => {
   if (providerId === "claude") {
@@ -106,44 +105,72 @@ const getFirstEnabledProviderId = (config: OmarchyAgentBarConfig): ProviderId | 
   return explicitNull;
 };
 
-const getProviderView = (config: OmarchyAgentBarConfig, providerId: ProviderId): ProviderView => {
+const createClaudeProviderView = (
+  config: OmarchyAgentBarConfig,
+  providerRuntimeStates: ProviderRuntimeStateMap,
+): ClaudeProviderView => ({
+  actions: providerRuntimeStates.claude.actions,
+  config: config.providers.claude,
+  enabled: config.providers.claude.enabled,
+  id: "claude",
+  selected: config.selectedProvider === "claude",
+  settings: {
+    activeTokenAccountIndex: config.providers.claude.activeTokenAccountIndex,
+    availableCookieSources: claudeCookieSources,
+    availablePromptPolicies: claudePromptPolicies,
+    availableUsageSources: claudeUsageSources,
+    showPromptPolicyControl: true,
+    tokenAccounts: config.providers.claude.tokenAccounts,
+  },
+  status: providerRuntimeStates.claude.snapshot,
+});
+
+const createCodexProviderView = (
+  config: OmarchyAgentBarConfig,
+  providerRuntimeStates: ProviderRuntimeStateMap,
+): CodexProviderView => ({
+  actions: providerRuntimeStates.codex.actions,
+  config: config.providers.codex,
+  enabled: config.providers.codex.enabled,
+  id: "codex",
+  selected: config.selectedProvider === "codex",
+  settings: {
+    availableCookieSources: codexCookieSources,
+    availableUsageSources: codexUsageSources,
+    showCookieSourceControl: config.providers.codex.extrasEnabled,
+    showManualCookieField:
+      config.providers.codex.extrasEnabled && config.providers.codex.cookieSource === "manual",
+  },
+  status: providerRuntimeStates.codex.snapshot,
+});
+
+const createGeminiProviderView = (
+  config: OmarchyAgentBarConfig,
+  providerRuntimeStates: ProviderRuntimeStateMap,
+): GeminiProviderView => ({
+  actions: providerRuntimeStates.gemini.actions,
+  config: config.providers.gemini,
+  enabled: config.providers.gemini.enabled,
+  id: "gemini",
+  selected: config.selectedProvider === "gemini",
+  settings: {},
+  status: providerRuntimeStates.gemini.snapshot,
+});
+
+const getProviderView = (
+  config: OmarchyAgentBarConfig,
+  providerId: ProviderId,
+  providerRuntimeStates: ProviderRuntimeStateMap = createDefaultProviderRuntimeStateMap(),
+): ProviderView => {
   if (providerId === "claude") {
-    return {
-      actions: createProviderActionsView(true),
-      config: config.providers.claude,
-      enabled: config.providers.claude.enabled,
-      id: "claude",
-      selected: config.selectedProvider === "claude",
-      settings: {
-        availableCookieSources: claudeCookieSources,
-        availablePromptPolicies: claudePromptPolicies,
-        availableUsageSources: claudeUsageSources,
-      },
-    };
+    return createClaudeProviderView(config, providerRuntimeStates);
   }
 
   if (providerId === "codex") {
-    return {
-      actions: createProviderActionsView(false),
-      config: config.providers.codex,
-      enabled: config.providers.codex.enabled,
-      id: "codex",
-      selected: config.selectedProvider === "codex",
-      settings: {
-        availableCookieSources: codexCookieSources,
-        availableUsageSources: codexUsageSources,
-      },
-    };
+    return createCodexProviderView(config, providerRuntimeStates);
   }
 
-  return {
-    actions: createProviderActionsView(false),
-    config: config.providers.gemini,
-    enabled: config.providers.gemini.enabled,
-    id: "gemini",
-    selected: config.selectedProvider === "gemini",
-    settings: {},
-  };
+  return createGeminiProviderView(config, providerRuntimeStates);
 };
 
 const repairSelectedProvider = (config: OmarchyAgentBarConfig): OmarchyAgentBarConfig => {
@@ -163,10 +190,17 @@ const repairSelectedProvider = (config: OmarchyAgentBarConfig): OmarchyAgentBarC
   };
 };
 
-const createAppStoreState = (config: OmarchyAgentBarConfig): AppStoreState => ({
+const createAppStoreState = (
+  config: OmarchyAgentBarConfig,
+  providerRuntimeStates: ProviderRuntimeStateMap = createDefaultProviderRuntimeStateMap(),
+  scheduler: SchedulerState = defaultSchedulerState,
+): AppStoreState => ({
   config,
   enabledProviderIds: getEnabledProviderIds(config),
-  providerViews: config.providerOrder.map((providerId) => getProviderView(config, providerId)),
+  providerViews: config.providerOrder.map((providerId) =>
+    getProviderView(config, providerId, providerRuntimeStates),
+  ),
+  scheduler,
   selectedProviderId: config.selectedProvider,
 });
 
@@ -175,6 +209,7 @@ const createInitialAppStoreState = (): AppStoreState => createAppStoreState(crea
 export {
   createAppStoreState,
   createInitialAppStoreState,
+  defaultSchedulerState,
   getEnabledProviderIds,
   getProviderView,
   isProviderEnabled,
@@ -182,4 +217,5 @@ export {
   type AppStoreState,
   type ProviderId,
   type ProviderView,
+  type SchedulerState,
 };

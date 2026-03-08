@@ -1,4 +1,10 @@
-const providerActionNames = ["refresh", "login", "repair"] as const;
+const providerActionNames = [
+  "refresh",
+  "login",
+  "repair",
+  "openTokenFile",
+  "reloadTokenFile",
+] as const;
 const providerActionStatuses = ["success", "error", "unsupported"] as const;
 
 type ProviderId = "claude" | "codex" | "gemini";

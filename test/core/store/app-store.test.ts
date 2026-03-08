@@ -1,31 +1,65 @@
 import { createFakeConfigStore, createTestBinaryLocator, defaultDelayMs } from "./test-support.ts";
 import { expect, test } from "bun:test";
+import { createSuccessfulProviderActionResult } from "@/core/actions/action-result.ts";
+import { createRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { createAppStore } from "@/core/store/app-store.ts";
 import { createDefaultConfig } from "@/core/config/schema.ts";
 
 const firstSavedConfigIndex = 0;
 const lastSavedConfigIndex = -1;
 const slowSaveDelayMs = 20;
+const updatedTimestamp = "2026-03-08T12:00:00.000Z";
 
 const expectProviderActions = (
   actions: {
-    login: { actionName: "login"; supported: boolean };
-    refresh: { actionName: "refresh"; supported: boolean };
-    repair: { actionName: "repair"; supported: boolean };
+    login: { actionName: "login"; message: string | null; status: string; supported: boolean };
+    openTokenFile: {
+      actionName: "openTokenFile";
+      message: string | null;
+      status: string;
+      supported: boolean;
+    };
+    refresh: { actionName: "refresh"; message: string | null; status: string; supported: boolean };
+    reloadTokenFile: {
+      actionName: "reloadTokenFile";
+      message: string | null;
+      status: string;
+      supported: boolean;
+    };
+    repair: { actionName: "repair"; message: string | null; status: string; supported: boolean };
   },
+  supportsClaudeTokenFileActions: boolean,
   supportsRecovery: boolean,
 ): void => {
   expect(actions).toEqual({
     login: {
       actionName: "login",
+      message: null,
+      status: "idle",
       supported: true,
+    },
+    openTokenFile: {
+      actionName: "openTokenFile",
+      message: null,
+      status: "idle",
+      supported: supportsClaudeTokenFileActions,
     },
     refresh: {
       actionName: "refresh",
+      message: null,
+      status: "idle",
       supported: true,
+    },
+    reloadTokenFile: {
+      actionName: "reloadTokenFile",
+      message: null,
+      status: "idle",
+      supported: supportsClaudeTokenFileActions,
     },
     repair: {
       actionName: "repair",
+      message: null,
+      status: "idle",
       supported: supportsRecovery,
     },
   });
@@ -45,6 +79,28 @@ const createInitializedAppStore = async (): Promise<ReturnType<typeof createAppS
 
   return appStore;
 };
+
+const createCodexRefreshSnapshot = () => ({
+  accountEmail: "codex@example.com",
+  latestError: null,
+  metrics: [
+    {
+      detail: null,
+      label: "Session",
+      value: "58%",
+    },
+    {
+      detail: null,
+      label: "Weekly",
+      value: "81%",
+    },
+  ],
+  planLabel: "OAuth",
+  sourceLabel: "oauth",
+  state: "ready" as const,
+  updatedAt: updatedTimestamp,
+  version: "1.2.3",
+});
 
 test("initializes with the persisted config and exposes provider views", async () => {
   const initialConfig = createDefaultConfig();
@@ -83,9 +139,12 @@ test("exposes the codex provider screen settings and shared actions", async () =
     throw new TypeError("Expected the Codex provider view.");
   }
 
-  expectProviderActions(resolvedCodexView.actions, false);
+  expectProviderActions(resolvedCodexView.actions, false, false);
   expect(resolvedCodexView.settings.availableCookieSources).toEqual(["auto", "manual", "off"]);
   expect(resolvedCodexView.settings.availableUsageSources).toEqual(["auto", "oauth", "cli"]);
+  expect(resolvedCodexView.settings.showCookieSourceControl).toBe(false);
+  expect(resolvedCodexView.settings.showManualCookieField).toBe(false);
+  expect(resolvedCodexView.status.state).toBe("idle");
 });
 
 test("exposes the claude provider screen settings and recovery action", async () => {
@@ -96,7 +155,7 @@ test("exposes the claude provider screen settings and recovery action", async ()
     throw new TypeError("Expected the Claude provider view.");
   }
 
-  expectProviderActions(resolvedClaudeView.actions, true);
+  expectProviderActions(resolvedClaudeView.actions, true, true);
   expect(resolvedClaudeView.settings.availableCookieSources).toEqual(["auto", "manual"]);
   expect(resolvedClaudeView.settings.availablePromptPolicies).toEqual([
     "never_prompt",
@@ -109,6 +168,8 @@ test("exposes the claude provider screen settings and recovery action", async ()
     "web",
     "cli",
   ]);
+  expect(resolvedClaudeView.settings.showPromptPolicyControl).toBe(true);
+  expect(resolvedClaudeView.settings.tokenAccounts).toEqual([]);
 });
 
 test("exposes the gemini provider screen shared actions without provider-specific settings", async () => {
@@ -119,7 +180,7 @@ test("exposes the gemini provider screen shared actions without provider-specifi
     throw new TypeError("Expected the Gemini provider view.");
   }
 
-  expectProviderActions(resolvedGeminiView.actions, false);
+  expectProviderActions(resolvedGeminiView.actions, false, false);
   expect(resolvedGeminiView.settings).toEqual({});
 });
 
@@ -238,4 +299,105 @@ test("persists provider-specific configuration updates", async () => {
       token: "secret",
     },
   ]);
+});
+
+test("shows in-flight refresh state and applies the final provider snapshot once", async () => {
+  let resolveRefresh = (): void => {};
+  let refreshCallCount = 0;
+  const refreshReady = new Promise<void>((resolve) => {
+    resolveRefresh = resolve;
+  });
+  const appStore = createAppStore({
+    binaryLocator: createTestBinaryLocator({
+      claude: true,
+      codex: true,
+      gemini: true,
+    }),
+    configStore: createFakeConfigStore(createDefaultConfig()),
+    providerAdapters: {
+      claude: {
+        login: async () =>
+          createSuccessfulProviderActionResult("claude", "login", "Claude login started."),
+        openTokenFile: async () =>
+          createSuccessfulProviderActionResult("claude", "openTokenFile", "Opened."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("claude", "refresh", "Claude refreshed."),
+          ),
+        reloadTokenFile: async () =>
+          createSuccessfulProviderActionResult("claude", "reloadTokenFile", "Reloaded."),
+        repair: async () =>
+          createSuccessfulProviderActionResult("claude", "repair", "Claude repaired."),
+      },
+      codex: {
+        login: async () =>
+          createSuccessfulProviderActionResult("codex", "login", "Codex login started."),
+        refresh: async () => {
+          refreshCallCount += 1;
+          await refreshReady;
+
+          return createRefreshActionResult(
+            createSuccessfulProviderActionResult("codex", "refresh", "Codex refreshed."),
+            createCodexRefreshSnapshot(),
+          );
+        },
+      },
+      gemini: {
+        login: async () =>
+          createSuccessfulProviderActionResult("gemini", "login", "Gemini login started."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("gemini", "refresh", "Gemini refreshed."),
+          ),
+      },
+    },
+  });
+
+  await appStore.initialize();
+
+  const firstRefresh = appStore.refreshProvider("codex");
+  const secondRefresh = appStore.refreshProvider("codex");
+
+  expect(appStore.getProviderView("codex").actions.refresh.status).toBe("running");
+  expect(appStore.getProviderView("codex").status.state).toBe("refreshing");
+  resolveRefresh();
+  await Promise.all([firstRefresh, secondRefresh]);
+
+  expect(refreshCallCount).toBe(1);
+  expect(appStore.getProviderView("codex").actions.refresh.status).toBe("success");
+  expect(appStore.getProviderView("codex").status.sourceLabel).toBe("oauth");
+  expect(appStore.getProviderView("codex").status.updatedAt).toBe(updatedTimestamp);
+  expect(appStore.getProviderView("codex").status.metrics).toEqual([
+    {
+      detail: null,
+      label: "Session",
+      value: "58%",
+    },
+    {
+      detail: null,
+      label: "Weekly",
+      value: "81%",
+    },
+  ]);
+});
+
+test("tracks scheduler state through explicit start and stop calls", async () => {
+  const appStore = await createInitializedAppStore();
+
+  expect(appStore.getState().scheduler).toEqual({
+    active: false,
+    intervalMs: null,
+  });
+
+  appStore.startRefreshScheduler(15_000);
+  expect(appStore.getState().scheduler).toEqual({
+    active: true,
+    intervalMs: 15_000,
+  });
+
+  appStore.stopRefreshScheduler();
+  expect(appStore.getState().scheduler).toEqual({
+    active: false,
+    intervalMs: null,
+  });
 });

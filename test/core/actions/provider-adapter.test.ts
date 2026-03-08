@@ -1,13 +1,16 @@
 import { expect, test } from "bun:test";
+import { createRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { createAppStore } from "@/core/store/app-store.ts";
 import { createDefaultConfig } from "@/core/config/schema.ts";
 import { createSuccessfulProviderActionResult } from "@/core/actions/action-result.ts";
 
 type OmarchyAgentBarConfig = ReturnType<typeof createDefaultConfig>;
-type ProviderActionName = "login" | "refresh" | "repair";
+type ProviderActionName = "login" | "openTokenFile" | "refresh" | "reloadTokenFile" | "repair";
 type ProviderCall =
   | "claude:login"
+  | "claude:openTokenFile"
   | "claude:refresh"
+  | "claude:reloadTokenFile"
   | "claude:repair"
   | "codex:login"
   | "codex:refresh"
@@ -37,18 +40,20 @@ interface ProviderAdapterFixture {
 
 interface ClaudeProviderAdapterFixture {
   login: ReturnType<typeof createSuccessfulAdapterAction<"claude", "login">>;
-  refresh: ReturnType<typeof createSuccessfulAdapterAction<"claude", "refresh">>;
+  openTokenFile: ReturnType<typeof createSuccessfulAdapterAction<"claude", "openTokenFile">>;
+  refresh: ReturnType<typeof createSuccessfulRefreshAdapterAction<"claude">>;
+  reloadTokenFile: ReturnType<typeof createSuccessfulAdapterAction<"claude", "reloadTokenFile">>;
   repair: ReturnType<typeof createSuccessfulAdapterAction<"claude", "repair">>;
 }
 
 interface CodexProviderAdapterFixture {
   login: ReturnType<typeof createSuccessfulAdapterAction<"codex", "login">>;
-  refresh: ReturnType<typeof createSuccessfulAdapterAction<"codex", "refresh">>;
+  refresh: ReturnType<typeof createSuccessfulRefreshAdapterAction<"codex">>;
 }
 
 interface GeminiProviderAdapterFixture {
   login: ReturnType<typeof createSuccessfulAdapterAction<"gemini", "login">>;
-  refresh: ReturnType<typeof createSuccessfulAdapterAction<"gemini", "refresh">>;
+  refresh: ReturnType<typeof createSuccessfulRefreshAdapterAction<"gemini">>;
 }
 
 interface ProviderAdaptersFixture {
@@ -112,7 +117,9 @@ const createSuccessfulAdapterAction =
     calls: string[],
     actionSpec: SuccessfulActionSpec<ProviderValue, ActionValue>,
   ) =>
-  async (): Promise<
+  async (
+    _context?: unknown,
+  ): Promise<
     ReturnType<typeof createSuccessfulProviderActionResult<ProviderValue, ActionValue>>
   > => {
     calls.push(actionSpec.callName);
@@ -125,6 +132,20 @@ const createSuccessfulAdapterAction =
     );
   };
 
+const createSuccessfulRefreshAdapterAction =
+  <ProviderValue extends "claude" | "codex" | "gemini">(
+    calls: string[],
+    actionSpec: SuccessfulActionSpec<ProviderValue, "refresh">,
+  ) =>
+  async (): Promise<ReturnType<typeof createRefreshActionResult<ProviderValue>>> => {
+    calls.push(actionSpec.callName);
+    await Promise.resolve();
+
+    return createRefreshActionResult(
+      createSuccessfulProviderActionResult(actionSpec.providerId, "refresh", actionSpec.message),
+    );
+  };
+
 const createClaudeProviderAdapter = (calls: string[]): ClaudeProviderAdapterFixture => ({
   login: createSuccessfulAdapterAction(calls, {
     actionName: "login",
@@ -132,10 +153,22 @@ const createClaudeProviderAdapter = (calls: string[]): ClaudeProviderAdapterFixt
     message: "Claude login started.",
     providerId: "claude",
   }),
-  refresh: createSuccessfulAdapterAction(calls, {
+  openTokenFile: createSuccessfulAdapterAction(calls, {
+    actionName: "openTokenFile",
+    callName: "claude:openTokenFile",
+    message: "Claude token file opened.",
+    providerId: "claude",
+  }),
+  refresh: createSuccessfulRefreshAdapterAction(calls, {
     actionName: "refresh",
     callName: "claude:refresh",
     message: "Claude refreshed.",
+    providerId: "claude",
+  }),
+  reloadTokenFile: createSuccessfulAdapterAction(calls, {
+    actionName: "reloadTokenFile",
+    callName: "claude:reloadTokenFile",
+    message: "Claude token file reloaded.",
     providerId: "claude",
   }),
   repair: createSuccessfulAdapterAction(calls, {
@@ -153,7 +186,7 @@ const createCodexProviderAdapter = (calls: string[]): CodexProviderAdapterFixtur
     message: "Codex login started.",
     providerId: "codex",
   }),
-  refresh: createSuccessfulAdapterAction(calls, {
+  refresh: createSuccessfulRefreshAdapterAction(calls, {
     actionName: "refresh",
     callName: "codex:refresh",
     message: "Codex refreshed.",
@@ -168,7 +201,7 @@ const createGeminiProviderAdapter = (calls: string[]): GeminiProviderAdapterFixt
     message: "Gemini login started.",
     providerId: "gemini",
   }),
-  refresh: createSuccessfulAdapterAction(calls, {
+  refresh: createSuccessfulRefreshAdapterAction(calls, {
     actionName: "refresh",
     callName: "gemini:refresh",
     message: "Gemini refreshed.",
@@ -209,7 +242,9 @@ test("dispatches shared provider actions through the matching adapter", async ()
     createSuccessfulProviderActionResult("codex", "login", "Codex login started."),
   );
   expect(geminiRefreshResult).toEqual(
-    createSuccessfulProviderActionResult("gemini", "refresh", "Gemini refreshed."),
+    createRefreshActionResult(
+      createSuccessfulProviderActionResult("gemini", "refresh", "Gemini refreshed."),
+    ),
   );
 });
 

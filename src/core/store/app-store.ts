@@ -1,14 +1,17 @@
-import {
-  createAppStoreState,
-  createInitialAppStoreState,
-  getProviderView,
-} from "@/core/store/state.ts";
+/* eslint-disable import/consistent-type-specifier-style, max-lines, max-lines-per-function, max-statements, no-duplicate-imports, no-ternary, no-void, require-await, sort-imports, @typescript-eslint/promise-function-async, @typescript-eslint/return-await */
+
+import type { ProviderActionName, ProviderActionStatus } from "@/core/actions/action-result.ts";
 import {
   createDefaultProviderAdapters,
   dispatchLoginAction,
+  dispatchOpenTokenFileAction,
   dispatchRecoveryAction,
   dispatchRefreshAction,
+  dispatchReloadTokenFileAction,
 } from "@/core/actions/provider-adapter.ts";
+import { initializeConfigWithDetection } from "@/core/detection/provider-detection.ts";
+import { explicitNull, createProviderMap } from "@/core/providers/shared.ts";
+import type { ProviderMap } from "@/core/providers/shared.ts";
 import {
   setClaudeConfig,
   setCodexConfig,
@@ -17,14 +20,23 @@ import {
   setProviderOrder,
   setSelectedProvider,
 } from "@/core/store/mutations.ts";
-import { initializeConfigWithDetection } from "@/core/detection/provider-detection.ts";
+import {
+  createAppStoreState,
+  createInitialAppStoreState,
+  defaultSchedulerState,
+  getProviderView,
+} from "@/core/store/state.ts";
+import type { SchedulerState } from "@/core/store/state.ts";
+import { createDefaultProviderRuntimeStateMap } from "@/core/store/runtime-state.ts";
+import type {
+  ProviderActionView,
+  ProviderRuntimeState,
+  ProviderRuntimeStateMap,
+  ProviderRuntimeStatus,
+} from "@/core/store/runtime-state.ts";
 
 type AppStoreState = ReturnType<typeof createInitialAppStoreState>;
 type AppStoreConfig = AppStoreState["config"];
-type LoginActionResult = Awaited<ReturnType<typeof dispatchLoginAction>>;
-type ProviderAdapters = ReturnType<typeof createDefaultProviderAdapters>;
-type RecoveryActionResult = Awaited<ReturnType<typeof dispatchRecoveryAction>>;
-type RefreshActionResult = Awaited<ReturnType<typeof dispatchRefreshAction>>;
 interface BinaryLocator {
   findBinary: (binaryName: "claude" | "codex" | "gemini") => string | null;
   isInstalled: (binaryName: "claude" | "codex" | "gemini") => boolean;
@@ -40,9 +52,15 @@ interface ConfigStore {
   }>;
   save: (config: AppStoreConfig) => Promise<AppStoreConfig>;
 }
-
+type LoginActionResult = Awaited<ReturnType<typeof dispatchLoginAction>>;
+type OpenTokenFileActionResult = Awaited<ReturnType<typeof dispatchOpenTokenFileAction>>;
+type ProviderAdapters = ReturnType<typeof createDefaultProviderAdapters>;
 type ProviderId = AppStoreState["selectedProviderId"];
 type ProviderView = ReturnType<typeof getProviderView>;
+type RecoveryActionResult = Awaited<ReturnType<typeof dispatchRecoveryAction>>;
+type RefreshActionResult = Awaited<ReturnType<typeof dispatchRefreshAction>>;
+type ReloadTokenFileActionResult = Awaited<ReturnType<typeof dispatchReloadTokenFileAction>>;
+type SchedulerHandle = ReturnType<typeof globalThis.setInterval>;
 type StoreListener = (state: AppStoreState) => void;
 
 interface AppStore {
@@ -50,8 +68,11 @@ interface AppStore {
   getState: () => AppStoreState;
   initialize: (options?: { forceRedetection?: boolean }) => Promise<AppStoreState>;
   loginProvider: (providerId: ProviderId) => Promise<LoginActionResult>;
-  repairProvider: (providerId: ProviderId) => Promise<RecoveryActionResult>;
+  openClaudeTokenFile: () => Promise<OpenTokenFileActionResult>;
+  refreshEnabledProviders: () => Promise<RefreshActionResult[]>;
   refreshProvider: (providerId: ProviderId) => Promise<RefreshActionResult>;
+  reloadClaudeTokenFile: () => Promise<ReloadTokenFileActionResult>;
+  repairProvider: (providerId: ProviderId) => Promise<RecoveryActionResult>;
   selectProvider: (providerId: ProviderId) => Promise<AppStoreState>;
   setClaudeConfig: (
     updater: (
@@ -70,6 +91,8 @@ interface AppStore {
   ) => Promise<AppStoreState>;
   setProviderEnabled: (providerId: ProviderId, enabled: boolean) => Promise<AppStoreState>;
   setProviderOrder: (providerOrder: ProviderId[]) => Promise<AppStoreState>;
+  startRefreshScheduler: (intervalMs: number) => AppStoreState;
+  stopRefreshScheduler: () => AppStoreState;
   subscribe: (listener: StoreListener) => () => void;
 }
 
@@ -84,6 +107,10 @@ interface AppStoreRuntime {
   listeners: Set<StoreListener>;
   persistenceChain: Promise<void>;
   persistenceVersion: number;
+  providerRuntimeStates: ProviderRuntimeStateMap;
+  refreshOperations: ProviderMap<Promise<RefreshActionResult> | null>;
+  scheduler: SchedulerState;
+  schedulerHandle: SchedulerHandle | null;
 }
 
 const createResolvedPromise = async (): Promise<void> => {
@@ -96,20 +123,53 @@ const notifyListeners = (runtime: AppStoreRuntime): void => {
   }
 };
 
+const rebuildCurrentState = (runtime: AppStoreRuntime, config: AppStoreConfig): AppStoreState => {
+  runtime.currentState = createAppStoreState(
+    config,
+    runtime.providerRuntimeStates,
+    runtime.scheduler,
+  );
+  notifyListeners(runtime);
+
+  return runtime.currentState;
+};
+
 const createStateSetter =
   (runtime: AppStoreRuntime) =>
-  (config: AppStoreConfig): AppStoreState => {
-    runtime.currentState = createAppStoreState(config);
-    notifyListeners(runtime);
+  (config: AppStoreConfig): AppStoreState =>
+    rebuildCurrentState(runtime, config);
 
-    return runtime.currentState;
+const updateProviderRuntimeState = (
+  runtime: AppStoreRuntime,
+  providerId: ProviderId,
+  updater: (providerRuntimeState: ProviderRuntimeState) => ProviderRuntimeState,
+): AppStoreState => {
+  runtime.providerRuntimeStates = {
+    ...runtime.providerRuntimeStates,
+    [providerId]: updater(runtime.providerRuntimeStates[providerId]),
   };
+
+  return rebuildCurrentState(runtime, runtime.currentState.config);
+};
+
+const updateSchedulerState = (
+  runtime: AppStoreRuntime,
+  scheduler: SchedulerState,
+): AppStoreState => {
+  runtime.scheduler = scheduler;
+
+  return rebuildCurrentState(runtime, runtime.currentState.config);
+};
 
 const createAppStoreRuntime = (): AppStoreRuntime => ({
   currentState: createInitialAppStoreState(),
   listeners: new Set<StoreListener>(),
   persistenceChain: createResolvedPromise(),
   persistenceVersion: 0,
+  providerRuntimeStates: createDefaultProviderRuntimeStateMap(),
+  refreshOperations: createProviderMap(() => explicitNull),
+  scheduler: defaultSchedulerState,
+  schedulerHandle: explicitNull,
 });
 
 const createInitialize = (options: CreateAppStoreOptions, runtime: AppStoreRuntime) => {
@@ -171,13 +231,8 @@ const createPersistConfig = (configStore: ConfigStore, runtime: AppStoreRuntime)
 
 const createSelectProvider =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (providerId: ProviderId): Promise<AppStoreState> => {
-    const nextState = await persistConfig(
-      setSelectedProvider(runtime.currentState.config, providerId),
-    );
-
-    return nextState;
-  };
+  async (providerId: ProviderId): Promise<AppStoreState> =>
+    await persistConfig(setSelectedProvider(runtime.currentState.config, providerId));
 
 const createSetClaudeConfig =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
@@ -185,11 +240,8 @@ const createSetClaudeConfig =
     updater: (
       providerConfig: AppStoreConfig["providers"]["claude"],
     ) => AppStoreConfig["providers"]["claude"],
-  ): Promise<AppStoreState> => {
-    const nextState = await persistConfig(setClaudeConfig(runtime.currentState.config, updater));
-
-    return nextState;
-  };
+  ): Promise<AppStoreState> =>
+    await persistConfig(setClaudeConfig(runtime.currentState.config, updater));
 
 const createSetCodexConfig =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
@@ -197,11 +249,8 @@ const createSetCodexConfig =
     updater: (
       providerConfig: AppStoreConfig["providers"]["codex"],
     ) => AppStoreConfig["providers"]["codex"],
-  ): Promise<AppStoreState> => {
-    const nextState = await persistConfig(setCodexConfig(runtime.currentState.config, updater));
-
-    return nextState;
-  };
+  ): Promise<AppStoreState> =>
+    await persistConfig(setCodexConfig(runtime.currentState.config, updater));
 
 const createSetGeminiConfig =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
@@ -209,76 +258,280 @@ const createSetGeminiConfig =
     updater: (
       providerConfig: AppStoreConfig["providers"]["gemini"],
     ) => AppStoreConfig["providers"]["gemini"],
-  ): Promise<AppStoreState> => {
-    const nextState = await persistConfig(setGeminiConfig(runtime.currentState.config, updater));
-
-    return nextState;
-  };
+  ): Promise<AppStoreState> =>
+    await persistConfig(setGeminiConfig(runtime.currentState.config, updater));
 
 const createSetProviderEnabled =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (providerId: ProviderId, enabled: boolean): Promise<AppStoreState> => {
-    const nextState = await persistConfig(
-      setProviderEnabled(runtime.currentState.config, providerId, enabled),
-    );
-
-    return nextState;
-  };
+  async (providerId: ProviderId, enabled: boolean): Promise<AppStoreState> =>
+    await persistConfig(setProviderEnabled(runtime.currentState.config, providerId, enabled));
 
 const createSetProviderOrder =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (providerOrder: ProviderId[]): Promise<AppStoreState> => {
-    const nextState = await persistConfig(
-      setProviderOrder(runtime.currentState.config, providerOrder),
-    );
+  async (providerOrder: ProviderId[]): Promise<AppStoreState> =>
+    await persistConfig(setProviderOrder(runtime.currentState.config, providerOrder));
 
-    return nextState;
-  };
+const createActionView = <ActionValue extends ProviderActionName>(
+  currentActionView: ProviderActionView<ActionValue>,
+  status: ProviderActionStatus | "idle" | "running",
+  message: string | null,
+): ProviderActionView<ActionValue> => ({
+  ...currentActionView,
+  message,
+  status,
+});
+
+const createSnapshotWithState = (
+  providerRuntimeState: ProviderRuntimeState,
+  state: ProviderRuntimeStatus,
+  latestError: string | null = providerRuntimeState.snapshot.latestError,
+): ProviderRuntimeState["snapshot"] => ({
+  ...providerRuntimeState.snapshot,
+  latestError,
+  state,
+});
+
+const markProviderActionRunning = (
+  runtime: AppStoreRuntime,
+  providerId: ProviderId,
+  actionName: ProviderActionName,
+): AppStoreState =>
+  updateProviderRuntimeState(runtime, providerId, (providerRuntimeState) => ({
+    ...providerRuntimeState,
+    actions: {
+      ...providerRuntimeState.actions,
+      [actionName]: createActionView(
+        providerRuntimeState.actions[actionName],
+        "running",
+        explicitNull,
+      ),
+    },
+    snapshot:
+      actionName === "refresh"
+        ? {
+            ...providerRuntimeState.snapshot,
+            state: "refreshing",
+          }
+        : providerRuntimeState.snapshot,
+  }));
+
+const applyActionResult = (
+  runtime: AppStoreRuntime,
+  providerId: ProviderId,
+  actionResult:
+    | LoginActionResult
+    | OpenTokenFileActionResult
+    | RecoveryActionResult
+    | RefreshActionResult
+    | ReloadTokenFileActionResult,
+): AppStoreState =>
+  updateProviderRuntimeState(runtime, providerId, (providerRuntimeState) => {
+    const nextSnapshot = ((): ProviderRuntimeState["snapshot"] => {
+      if (actionResult.actionName === "refresh") {
+        if (actionResult.snapshot !== null) {
+          const nextState: ProviderRuntimeStatus =
+            actionResult.status === "error" ? "error" : "ready";
+
+          return {
+            ...actionResult.snapshot,
+            latestError:
+              actionResult.status === "error"
+                ? actionResult.message
+                : actionResult.snapshot.latestError,
+            state: nextState,
+          };
+        }
+
+        if (actionResult.status === "error") {
+          return createSnapshotWithState(providerRuntimeState, "error", actionResult.message);
+        }
+
+        if (actionResult.status === "success") {
+          return createSnapshotWithState(providerRuntimeState, "ready", explicitNull);
+        }
+      }
+
+      if (actionResult.status === "error") {
+        return createSnapshotWithState(providerRuntimeState, "error", actionResult.message);
+      }
+
+      return providerRuntimeState.snapshot;
+    })();
+
+    return {
+      ...providerRuntimeState,
+      actions: {
+        ...providerRuntimeState.actions,
+        [actionResult.actionName]: createActionView(
+          providerRuntimeState.actions[actionResult.actionName],
+          actionResult.status,
+          actionResult.message,
+        ),
+      },
+      snapshot: nextSnapshot,
+    };
+  });
 
 const createLoginProvider =
-  (providerAdapters: ProviderAdapters) =>
+  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
   async (providerId: ProviderId): Promise<LoginActionResult> => {
-    const actionResult = await dispatchLoginAction(providerAdapters, providerId);
+    markProviderActionRunning(runtime, providerId, "login");
+    const actionResult = await dispatchLoginAction(
+      providerAdapters,
+      runtime.currentState.config,
+      providerId,
+    );
+
+    applyActionResult(runtime, providerId, actionResult);
+
+    return actionResult;
+  };
+
+const createOpenClaudeTokenFile =
+  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
+  async (): Promise<OpenTokenFileActionResult> => {
+    markProviderActionRunning(runtime, "claude", "openTokenFile");
+    const actionResult = await dispatchOpenTokenFileAction(
+      providerAdapters,
+      runtime.currentState.config,
+      "claude",
+    );
+
+    applyActionResult(runtime, "claude", actionResult);
 
     return actionResult;
   };
 
 const createRefreshProvider =
-  (providerAdapters: ProviderAdapters) =>
+  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
   async (providerId: ProviderId): Promise<RefreshActionResult> => {
-    const actionResult = await dispatchRefreshAction(providerAdapters, providerId);
+    const pendingOperation = runtime.refreshOperations[providerId];
+
+    if (pendingOperation !== null) {
+      return pendingOperation;
+    }
+
+    markProviderActionRunning(runtime, providerId, "refresh");
+    const refreshOperation = (async (): Promise<RefreshActionResult> => {
+      try {
+        const actionResult = await dispatchRefreshAction(
+          providerAdapters,
+          runtime.currentState.config,
+          providerId,
+        );
+
+        applyActionResult(runtime, providerId, actionResult);
+
+        return actionResult;
+      } finally {
+        runtime.refreshOperations = {
+          ...runtime.refreshOperations,
+          [providerId]: explicitNull,
+        };
+      }
+    })();
+
+    runtime.refreshOperations = {
+      ...runtime.refreshOperations,
+      [providerId]: refreshOperation,
+    };
+
+    return refreshOperation;
+  };
+
+const createReloadClaudeTokenFile =
+  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
+  async (): Promise<ReloadTokenFileActionResult> => {
+    markProviderActionRunning(runtime, "claude", "reloadTokenFile");
+    const actionResult = await dispatchReloadTokenFileAction(
+      providerAdapters,
+      runtime.currentState.config,
+      "claude",
+    );
+
+    applyActionResult(runtime, "claude", actionResult);
 
     return actionResult;
   };
 
 const createRepairProvider =
-  (providerAdapters: ProviderAdapters) =>
+  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
   async (providerId: ProviderId): Promise<RecoveryActionResult> => {
-    const actionResult = await dispatchRecoveryAction(providerAdapters, providerId);
+    markProviderActionRunning(runtime, providerId, "repair");
+    const actionResult = await dispatchRecoveryAction(
+      providerAdapters,
+      runtime.currentState.config,
+      providerId,
+    );
+
+    applyActionResult(runtime, providerId, actionResult);
 
     return actionResult;
   };
+
+const createRefreshEnabledProviders =
+  (
+    refreshProvider: (providerId: ProviderId) => Promise<RefreshActionResult>,
+    runtime: AppStoreRuntime,
+  ) =>
+  async (): Promise<RefreshActionResult[]> =>
+    await Promise.all(
+      runtime.currentState.enabledProviderIds.map((providerId) => refreshProvider(providerId)),
+    );
+
+const createStartRefreshScheduler =
+  (refreshEnabledProviders: () => Promise<RefreshActionResult[]>, runtime: AppStoreRuntime) =>
+  (intervalMs: number): AppStoreState => {
+    if (runtime.schedulerHandle !== null) {
+      globalThis.clearInterval(runtime.schedulerHandle);
+    }
+
+    runtime.schedulerHandle = globalThis.setInterval(() => {
+      void refreshEnabledProviders();
+    }, intervalMs);
+
+    return updateSchedulerState(runtime, {
+      active: true,
+      intervalMs,
+    });
+  };
+
+const createStopRefreshScheduler = (runtime: AppStoreRuntime) => (): AppStoreState => {
+  if (runtime.schedulerHandle !== null) {
+    globalThis.clearInterval(runtime.schedulerHandle);
+    runtime.schedulerHandle = explicitNull;
+  }
+
+  return updateSchedulerState(runtime, defaultSchedulerState);
+};
 
 const createAppStore = (options: CreateAppStoreOptions): AppStore => {
   const providerAdapters = options.providerAdapters ?? createDefaultProviderAdapters();
   const runtime = createAppStoreRuntime();
   const initialize = createInitialize(options, runtime);
   const persistConfig = createPersistConfig(options.configStore, runtime);
+  const refreshProvider = createRefreshProvider(providerAdapters, runtime);
+  const refreshEnabledProviders = createRefreshEnabledProviders(refreshProvider, runtime);
 
   return {
     getProviderView: (providerId: ProviderId): ProviderView =>
-      getProviderView(runtime.currentState.config, providerId),
+      getProviderView(runtime.currentState.config, providerId, runtime.providerRuntimeStates),
     getState: (): AppStoreState => runtime.currentState,
     initialize,
-    loginProvider: createLoginProvider(providerAdapters),
-    refreshProvider: createRefreshProvider(providerAdapters),
-    repairProvider: createRepairProvider(providerAdapters),
+    loginProvider: createLoginProvider(providerAdapters, runtime),
+    openClaudeTokenFile: createOpenClaudeTokenFile(providerAdapters, runtime),
+    refreshEnabledProviders,
+    refreshProvider,
+    reloadClaudeTokenFile: createReloadClaudeTokenFile(providerAdapters, runtime),
+    repairProvider: createRepairProvider(providerAdapters, runtime),
     selectProvider: createSelectProvider(persistConfig, runtime),
     setClaudeConfig: createSetClaudeConfig(persistConfig, runtime),
     setCodexConfig: createSetCodexConfig(persistConfig, runtime),
     setGeminiConfig: createSetGeminiConfig(persistConfig, runtime),
     setProviderEnabled: createSetProviderEnabled(persistConfig, runtime),
     setProviderOrder: createSetProviderOrder(persistConfig, runtime),
+    startRefreshScheduler: createStartRefreshScheduler(refreshEnabledProviders, runtime),
+    stopRefreshScheduler: createStopRefreshScheduler(runtime),
     subscribe: (listener: StoreListener): (() => void) => {
       runtime.listeners.add(listener);
 
