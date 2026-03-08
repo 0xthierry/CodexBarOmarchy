@@ -1,2 +1,6 @@
 .repositories
+node_modules
+.lefthook
+dist
+coverage
 ai_docs
