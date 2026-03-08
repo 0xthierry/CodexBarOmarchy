@@ -1,8 +1,8 @@
+import { createDefaultConfig, createDefaultProviderEnabledMap } from "@/core/config/schema.ts";
 import type { BinaryLocator } from "@/core/detection/binary-locator.ts";
 import type { ConfigStore } from "@/core/config/store.ts";
-import { createDefaultProviderEnabledMap } from "@/core/config/schema.ts";
 
-type OmarchyAgentBarConfig = Awaited<ReturnType<ConfigStore["loadOrCreateDefault"]>>["config"];
+type OmarchyAgentBarConfig = ReturnType<typeof createDefaultConfig>;
 type ProviderEnabledMap = ReturnType<typeof createDefaultProviderEnabledMap>;
 
 interface DetectedBinaryState {
@@ -50,6 +50,35 @@ const applyProviderDetection = (
   },
 });
 
+const isProviderEnabled = (config: OmarchyAgentBarConfig, providerId: ProviderId): boolean => {
+  if (providerId === "claude") {
+    return config.providers.claude.enabled;
+  }
+
+  if (providerId === "codex") {
+    return config.providers.codex.enabled;
+  }
+
+  return config.providers.gemini.enabled;
+};
+
+const repairSelectedProvider = (config: OmarchyAgentBarConfig): OmarchyAgentBarConfig => {
+  if (isProviderEnabled(config, config.selectedProvider)) {
+    return config;
+  }
+
+  for (const providerId of config.providerOrder) {
+    if (isProviderEnabled(config, providerId)) {
+      return {
+        ...config,
+        selectedProvider: providerId,
+      };
+    }
+  }
+
+  return config;
+};
+
 const detectProviderBinaries = (binaryLocator: BinaryLocator): DetectedBinaryState => ({
   claude: binaryLocator.isInstalled("claude"),
   codex: binaryLocator.isInstalled("codex"),
@@ -77,29 +106,31 @@ const detectProviderConfiguration = (binaryLocator: BinaryLocator): ProviderDete
   };
 };
 
+type ProviderId = OmarchyAgentBarConfig["selectedProvider"];
+
 const initializeConfigWithDetection = async (
   options: InitializeDetectionOptions,
 ): Promise<DetectionInitializationResult> => {
-  const loadResult = await options.configStore.loadOrCreateDefault();
+  const existingConfig = await options.configStore.load();
 
-  if (!loadResult.created && options.forceRedetection !== true) {
+  if (existingConfig !== null && options.forceRedetection !== true) {
     return {
-      config: loadResult.config,
+      config: existingConfig,
       created: false,
       detectionRun: false,
     };
   }
 
+  const baseConfig = existingConfig ?? createDefaultConfig();
   const detectionResult = detectProviderConfiguration(options.binaryLocator);
-  const detectedConfig = applyProviderDetection(
-    loadResult.config,
-    detectionResult.enabledProviders,
+  const detectedConfig = repairSelectedProvider(
+    applyProviderDetection(baseConfig, detectionResult.enabledProviders),
   );
   const savedConfig = await options.configStore.save(detectedConfig);
 
   return {
     config: savedConfig,
-    created: loadResult.created,
+    created: existingConfig === null,
     detectionRun: true,
   };
 };

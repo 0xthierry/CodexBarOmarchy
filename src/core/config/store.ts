@@ -153,6 +153,7 @@ const defaultFileSystem: ConfigStoreFileSystem = {
     await $`rm -f ${path}`.quiet();
   },
   writeFile: async (path: string, contents: string, mode: number): Promise<void> => {
+    await $`install -m ${mode.toString(octalBase)} /dev/null ${path}`.quiet();
     await Bun.write(path, contents);
     await $`chmod ${mode.toString(octalBase)} ${path}`.quiet();
   },

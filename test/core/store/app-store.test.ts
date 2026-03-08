@@ -1,16 +1,11 @@
+import { createFakeConfigStore, createTestBinaryLocator, defaultDelayMs } from "./test-support.ts";
 import { expect, test } from "bun:test";
 import { createAppStore } from "@/core/store/app-store.ts";
 import { createDefaultConfig } from "@/core/config/schema.ts";
 
-type OmarchyAgentBarConfig = ReturnType<typeof createDefaultConfig>;
 const firstSavedConfigIndex = 0;
-
-// eslint-disable-next-line unicorn/no-null
-const explicitNull = null;
-
-const resolveVoid = async (): Promise<void> => {
-  await Promise.resolve();
-};
+const lastSavedConfigIndex = -1;
+const slowSaveDelayMs = 20;
 
 const expectProviderActions = (
   actions: {
@@ -34,73 +29,6 @@ const expectProviderActions = (
       supported: supportsRecovery,
     },
   });
-};
-
-interface FakeConfigStore {
-  deleteIfPresent: () => Promise<void>;
-  filePath: string;
-  load: () => Promise<OmarchyAgentBarConfig>;
-  loadOrCreateDefault: () => Promise<{
-    config: OmarchyAgentBarConfig;
-    created: boolean;
-  }>;
-  save: (config: OmarchyAgentBarConfig) => Promise<OmarchyAgentBarConfig>;
-  savedConfigs: OmarchyAgentBarConfig[];
-}
-
-interface TestBinaryLocator {
-  findBinary: (binaryName: "claude" | "codex" | "gemini") => string | null;
-  isInstalled: (binaryName: "claude" | "codex" | "gemini") => boolean;
-}
-
-const createTestBinaryLocator = (installedBinaries: {
-  claude: boolean;
-  codex: boolean;
-  gemini: boolean;
-}): TestBinaryLocator => ({
-  findBinary: (binaryName: "claude" | "codex" | "gemini"): string | null => {
-    if (installedBinaries[binaryName]) {
-      return `/usr/bin/${binaryName}`;
-    }
-
-    return explicitNull;
-  },
-  isInstalled: (binaryName: "claude" | "codex" | "gemini"): boolean =>
-    installedBinaries[binaryName],
-});
-
-const createFakeConfigStore = (initialConfig: OmarchyAgentBarConfig): FakeConfigStore => {
-  let currentConfig = initialConfig;
-  const savedConfigs: OmarchyAgentBarConfig[] = [];
-
-  return {
-    deleteIfPresent: resolveVoid,
-    filePath: "/tmp/fake-omarchy-agent-bar-config.json",
-    load: async (): Promise<OmarchyAgentBarConfig> => {
-      await Promise.resolve();
-
-      return currentConfig;
-    },
-    loadOrCreateDefault: async (): Promise<{
-      config: OmarchyAgentBarConfig;
-      created: boolean;
-    }> => {
-      await Promise.resolve();
-
-      return {
-        config: currentConfig,
-        created: false,
-      };
-    },
-    save: async (config: OmarchyAgentBarConfig): Promise<OmarchyAgentBarConfig> => {
-      currentConfig = config;
-      savedConfigs.push(config);
-      await Promise.resolve();
-
-      return config;
-    },
-    savedConfigs,
-  };
 };
 
 const createInitializedAppStore = async (): Promise<ReturnType<typeof createAppStore>> => {
@@ -214,6 +142,42 @@ test("updates runtime state immediately and persists provider enablement changes
   expect(appStore.getState().selectedProviderId).toBe("codex");
   await pendingUpdate;
   expect(configStore.savedConfigs[firstSavedConfigIndex]?.providers.claude.enabled).toBe(false);
+});
+
+test("serializes overlapping mutations so later saves cannot roll state back", async () => {
+  const configStore = createFakeConfigStore(createDefaultConfig(), {
+    saveDelaysMs: [slowSaveDelayMs, defaultDelayMs],
+  });
+  const appStore = createAppStore({
+    binaryLocator: createTestBinaryLocator({
+      claude: true,
+      codex: true,
+      gemini: true,
+    }),
+    configStore,
+  });
+
+  await appStore.initialize();
+
+  const firstUpdate = appStore.setCodexConfig((providerConfig) => ({
+    ...providerConfig,
+    extrasEnabled: true,
+  }));
+  const secondUpdate = appStore.setClaudeConfig((providerConfig) => ({
+    ...providerConfig,
+    cookieSource: "manual",
+  }));
+
+  await Promise.all([firstUpdate, secondUpdate]);
+
+  expect(appStore.getState().config.providers.codex.extrasEnabled).toBe(true);
+  expect(appStore.getState().config.providers.claude.cookieSource).toBe("manual");
+  expect(configStore.savedConfigs.at(lastSavedConfigIndex)?.providers.codex.extrasEnabled).toBe(
+    true,
+  );
+  expect(configStore.savedConfigs.at(lastSavedConfigIndex)?.providers.claude.cookieSource).toBe(
+    "manual",
+  );
 });
 
 test("keeps the repaired selection when reordering still leaves it enabled", async () => {

@@ -1,14 +1,18 @@
 import {
+  createInMemoryConfigStore,
+  createTestBinaryLocator,
+  failedSaveMessage,
+} from "./test-support.ts";
+import {
   detectProviderEnablement,
   initializeConfigWithDetection,
 } from "@/core/detection/provider-detection.ts";
 import { expect, test } from "bun:test";
 import { createConfigStore } from "@/core/config/store.ts";
 
-// eslint-disable-next-line unicorn/no-null
-const explicitNull = null;
+const availableBinaryStates = [false, true] as const;
 
-const detectionCases: {
+interface DetectionCase {
   detectedBinaries: {
     claude: boolean;
     codex: boolean;
@@ -19,56 +23,14 @@ const detectionCases: {
     codex: boolean;
     gemini: boolean;
   };
-}[] = [
-  {
-    detectedBinaries: {
-      claude: false,
-      codex: false,
-      gemini: false,
-    },
-    enabledProviders: {
-      claude: false,
-      codex: true,
-      gemini: false,
-    },
-  },
-  {
-    detectedBinaries: {
-      claude: false,
-      codex: true,
-      gemini: false,
-    },
-    enabledProviders: {
-      claude: false,
-      codex: true,
-      gemini: false,
-    },
-  },
-  {
-    detectedBinaries: {
-      claude: true,
-      codex: false,
-      gemini: true,
-    },
-    enabledProviders: {
-      claude: true,
-      codex: false,
-      gemini: true,
-    },
-  },
-];
+}
 
 const expectedSuccessExitCode = 0;
 const tempDirectoryRoot = "/tmp";
 const textDecoder = new TextDecoder();
 
-interface TestBinaryLocator {
-  findBinary: (binaryName: "claude" | "codex" | "gemini") => string | null;
-  isInstalled: (binaryName: "claude" | "codex" | "gemini") => boolean;
-}
-
 interface FirstRunContext {
-  binaryLocator: TestBinaryLocator;
+  binaryLocator: ReturnType<typeof createTestBinaryLocator>;
   configStore: ReturnType<typeof createConfigStore>;
   firstRunResult: Awaited<ReturnType<typeof initializeConfigWithDetection>>;
 }
@@ -91,21 +53,36 @@ const createTemporaryConfigPath = (): string => {
   return `${directoryPath}/config.json`;
 };
 
-const createTestBinaryLocator = (installedBinaries: {
-  claude: boolean;
-  codex: boolean;
-  gemini: boolean;
-}): TestBinaryLocator => ({
-  findBinary: (binaryName: "claude" | "codex" | "gemini"): string | null => {
-    if (installedBinaries[binaryName]) {
-      return `/usr/bin/${binaryName}`;
-    }
-
-    return explicitNull;
+const createDetectionCase = (
+  claudeInstalled: boolean,
+  codexInstalled: boolean,
+  geminiInstalled: boolean,
+): DetectionCase => ({
+  detectedBinaries: {
+    claude: claudeInstalled,
+    codex: codexInstalled,
+    gemini: geminiInstalled,
   },
-  isInstalled: (binaryName: "claude" | "codex" | "gemini"): boolean =>
-    installedBinaries[binaryName],
+  enabledProviders: {
+    claude: claudeInstalled,
+    codex: codexInstalled || (!claudeInstalled && !codexInstalled && !geminiInstalled),
+    gemini: geminiInstalled,
+  },
 });
+
+const createDetectionCases = (): DetectionCase[] => {
+  const detectionCases: DetectionCase[] = [];
+
+  for (const claudeInstalled of availableBinaryStates) {
+    for (const codexInstalled of availableBinaryStates) {
+      for (const geminiInstalled of availableBinaryStates) {
+        detectionCases.push(createDetectionCase(claudeInstalled, codexInstalled, geminiInstalled));
+      }
+    }
+  }
+
+  return detectionCases;
+};
 
 const expectFirstRunState = (
   result: Awaited<ReturnType<typeof initializeConfigWithDetection>>,
@@ -137,7 +114,7 @@ const createFirstRunResult = async (filePath: string): Promise<FirstRunContext> 
 
 const enableCodexManually = async (
   filePath: string,
-  binaryLocator: TestBinaryLocator,
+  binaryLocator: ReturnType<typeof createTestBinaryLocator>,
 ): Promise<void> => {
   const configStore = createConfigStore({ filePath });
   const initializationResult = await initializeConfigWithDetection({
@@ -157,7 +134,29 @@ const enableCodexManually = async (
   });
 };
 
-for (const detectionCase of detectionCases) {
+const expectInitializationFailure = async (
+  configStore: ReturnType<typeof createInMemoryConfigStore>,
+  binaryLocator: ReturnType<typeof createTestBinaryLocator>,
+): Promise<void> => {
+  try {
+    await initializeConfigWithDetection({
+      binaryLocator,
+      configStore,
+    });
+  } catch (error) {
+    if (!(error instanceof Error)) {
+      throw error;
+    }
+
+    expect(error.message).toBe(failedSaveMessage);
+
+    return;
+  }
+
+  throw new Error("Expected initialization to fail.");
+};
+
+for (const detectionCase of createDetectionCases()) {
   test("derives enabled providers from detected binaries", () => {
     expect(detectProviderEnablement(detectionCase.detectedBinaries)).toEqual(
       detectionCase.enabledProviders,
@@ -184,6 +183,22 @@ test("runs provider detection only when the config file is first created", async
   expect(secondRunResult.created).toBe(false);
   expect(secondRunResult.detectionRun).toBe(false);
   expect(secondRunResult.config.providers.codex.enabled).toBe(true);
+});
+
+test("repairs the selected provider when detection disables the default selection", async () => {
+  const configStore = createInMemoryConfigStore();
+  const initializationResult = await initializeConfigWithDetection({
+    binaryLocator: createTestBinaryLocator({
+      claude: false,
+      codex: false,
+      gemini: true,
+    }),
+    configStore,
+  });
+
+  expect(initializationResult.config.selectedProvider).toBe("gemini");
+  expect(initializationResult.config.providers.codex.enabled).toBe(false);
+  expect(initializationResult.config.providers.gemini.enabled).toBe(true);
 });
 
 test("re-applies provider detection when forced", async () => {
@@ -224,4 +239,24 @@ test("re-applies provider detection when forced", async () => {
   expect(forcedResult.config.providers.claude.enabled).toBe(false);
   expect(forcedResult.config.providers.codex.enabled).toBe(false);
   expect(forcedResult.config.providers.gemini.enabled).toBe(true);
+});
+
+test("retries first-run detection when the initial save fails before any config exists", async () => {
+  const configStore = createInMemoryConfigStore({ failFirstSave: true });
+  const binaryLocator = createTestBinaryLocator({
+    claude: true,
+    codex: false,
+    gemini: false,
+  });
+
+  await expectInitializationFailure(configStore, binaryLocator);
+  const retryResult = await initializeConfigWithDetection({
+    binaryLocator,
+    configStore,
+  });
+
+  expect(retryResult.created).toBe(true);
+  expect(retryResult.detectionRun).toBe(true);
+  expect(retryResult.config.providers.claude.enabled).toBe(true);
+  expect(retryResult.config.providers.codex.enabled).toBe(false);
 });

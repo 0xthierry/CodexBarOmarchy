@@ -82,7 +82,13 @@ interface CreateAppStoreOptions {
 interface AppStoreRuntime {
   currentState: AppStoreState;
   listeners: Set<StoreListener>;
+  persistenceChain: Promise<void>;
+  persistenceVersion: number;
 }
+
+const createResolvedPromise = async (): Promise<void> => {
+  await Promise.resolve();
+};
 
 const notifyListeners = (runtime: AppStoreRuntime): void => {
   for (const listener of runtime.listeners) {
@@ -102,6 +108,8 @@ const createStateSetter =
 const createAppStoreRuntime = (): AppStoreRuntime => ({
   currentState: createInitialAppStoreState(),
   listeners: new Set<StoreListener>(),
+  persistenceChain: createResolvedPromise(),
+  persistenceVersion: 0,
 });
 
 const createInitialize = (options: CreateAppStoreOptions, runtime: AppStoreRuntime) => {
@@ -132,10 +140,32 @@ const createPersistConfig = (configStore: ConfigStore, runtime: AppStoreRuntime)
 
   return async (config: AppStoreConfig): Promise<AppStoreState> => {
     setCurrentConfig(config);
+    runtime.persistenceVersion += 1;
 
-    const savedConfig = await configStore.save(config);
+    const { persistenceVersion } = runtime;
+    let resolvedState = runtime.currentState;
+    const previousPersistenceChain = runtime.persistenceChain;
+    const persistenceOperation = (async (): Promise<void> => {
+      await previousPersistenceChain;
 
-    return setCurrentConfig(savedConfig);
+      const savedConfig = await configStore.save(config);
+
+      if (persistenceVersion === runtime.persistenceVersion) {
+        resolvedState = setCurrentConfig(savedConfig);
+      }
+    })();
+
+    runtime.persistenceChain = (async (): Promise<void> => {
+      try {
+        await persistenceOperation;
+      } catch {
+        await Promise.resolve();
+      }
+    })();
+
+    await persistenceOperation;
+
+    return resolvedState;
   };
 };
 
