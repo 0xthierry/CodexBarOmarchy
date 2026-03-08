@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/promise-function-async */
+
 import type { IpcMainInvokeEvent } from "electron";
 import type { AppStore } from "@/core/store/app-store.ts";
 import { shellBridgeChannels } from "@/shell/bridge.ts";

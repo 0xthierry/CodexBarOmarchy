@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unsafe-type-assertion, max-lines, max-lines-per-function */
+/* eslint-disable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unsafe-type-assertion, max-lines, max-lines-per-function, unicorn/prefer-query-selector */
 
 import type {
   AppStoreState,
