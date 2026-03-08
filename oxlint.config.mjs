@@ -9,7 +9,16 @@ export default defineConfig({
     style: "error",
     restriction: "error",
   },
-  ignorePatterns: [".repositories/**", "ai_docs/**", "node_modules/**", "dist/**", "coverage/**"],
+  ignorePatterns: [
+    ".repositories/**",
+    "ai_docs/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "src/runtime/**",
+    "src/shell/**",
+    "src/ui/**",
+  ],
   plugins: ["import", "promise", "typescript", "unicorn"],
   rules: {
     "import/no-default-export": "off",

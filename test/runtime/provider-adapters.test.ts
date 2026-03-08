@@ -1,10 +1,10 @@
-/* eslint-disable max-lines-per-function, max-statements, no-magic-numbers, sort-imports, promise/prefer-await-to-then, typescript-eslint/promise-function-async */
+/* eslint-disable import/no-relative-parent-imports, max-lines-per-function, max-statements, no-magic-numbers, sort-imports, promise/prefer-await-to-then, typescript-eslint/promise-function-async */
 
 import { expect, test } from "bun:test";
-import { createDefaultConfig } from "@/core/config/schema.ts";
-import { explicitNull } from "@/core/providers/shared.ts";
-import type { RuntimeCommandRunOptions, RuntimeHost } from "@/runtime/host.ts";
-import { createRuntimeProviderAdapters } from "@/runtime/provider-adapters.ts";
+import { createDefaultConfig } from "../../src/core/config/schema.ts";
+import { explicitNull } from "../../src/core/providers/shared.ts";
+import type { RuntimeCommandRunOptions, RuntimeHost } from "../../src/runtime/host.ts";
+import { createRuntimeProviderAdapters } from "../../src/runtime/provider-adapters.ts";
 
 const homeDirectory = "/tmp/test-home";
 const updatedAt = "2026-03-08T12:00:00.000Z";

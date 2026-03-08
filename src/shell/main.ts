@@ -1,4 +1,4 @@
-/* eslint-disable import/no-nodejs-modules, no-console, sort-imports, @typescript-eslint/promise-function-async, @typescript-eslint/return-await, promise/always-return, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, unicorn/no-null, unicorn/prefer-top-level-await */
+/* eslint-disable import/consistent-type-specifier-style, import/no-nodejs-modules, no-console, sort-imports, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/promise-function-async, @typescript-eslint/return-await, promise/always-return, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, unicorn/no-null, unicorn/prefer-top-level-await */
 
 import { app, BrowserWindow, ipcMain, nativeImage, Tray } from "electron";
 import { dirname, join } from "node:path";
@@ -11,6 +11,7 @@ import { createRuntimeHost } from "@/shell/runtime-host.ts";
 import { startShellSession } from "@/shell/session.ts";
 import type { ShellSession } from "@/shell/session.ts";
 import { createPopupWindow } from "@/shell/window.ts";
+import type { BrowserWindowConstructorLike } from "@/shell/window.ts";
 
 const startupFailureExitCode = 1;
 const shellDirectoryPath = dirname(fileURLToPath(import.meta.url));
@@ -37,7 +38,7 @@ const startShell = (): Promise<ShellSession> => {
     appStore,
     createPopupWindow: () =>
       createPopupWindow(
-        BrowserWindow,
+        BrowserWindow as unknown as BrowserWindowConstructorLike,
         join(distDirectoryPath, "ui", "index.html"),
         join(shellDirectoryPath, "preload.cjs"),
       ),

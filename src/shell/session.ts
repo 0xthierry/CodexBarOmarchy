@@ -1,7 +1,11 @@
+/* eslint-disable import/consistent-type-specifier-style, sort-imports */
+
 import type { AppStore } from "@/core/store/app-store.ts";
-import { registerStoreIpc, type IpcMainLike } from "@/shell/ipc.ts";
+import { registerStoreIpc } from "@/shell/ipc.ts";
+import type { IpcMainLike } from "@/shell/ipc.ts";
 import { connectTrayToPopup } from "@/shell/tray.ts";
-import { createPopupController, type PopupController, type PopupWindowLike } from "@/shell/window.ts";
+import { createPopupController } from "@/shell/window.ts";
+import type { PopupController, PopupWindowLike } from "@/shell/window.ts";
 
 interface TrayLike {
   destroy?: () => void;
@@ -23,9 +27,7 @@ interface StartShellSessionOptions {
   ipcMain: IpcMainLike;
 }
 
-const startShellSession = async (
-  options: StartShellSessionOptions,
-): Promise<ShellSession> => {
+const startShellSession = async (options: StartShellSessionOptions): Promise<ShellSession> => {
   await options.appStore.initialize();
 
   const popupWindow = await options.createPopupWindow();

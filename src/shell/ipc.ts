@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/promise-function-async */
+/* eslint-disable @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/promise-function-async, import/consistent-type-specifier-style, max-lines-per-function, max-statements, no-continue, no-duplicate-imports, sort-imports */
 
 import type { IpcMainInvokeEvent } from "electron";
 import type { AppStore } from "@/core/store/app-store.ts";
@@ -8,7 +8,7 @@ import type { AppStoreState } from "@/shell/bridge.ts";
 interface IpcMainLike {
   handle: (
     channel: string,
-    listener: (event: IpcMainInvokeEvent, payload?: unknown) => Promise<unknown> | unknown,
+    listener: (event: IpcMainInvokeEvent, payload?: unknown) => unknown,
   ) => void;
   removeHandler: (channel: string) => void;
 }
@@ -38,27 +38,35 @@ const registerStoreIpc = (
   };
 
   ipcMain.handle(shellBridgeChannels.getState, () => appStore.getState());
-  registerHandler(shellBridgeChannels.loginProvider, (providerId: AppStoreState["selectedProviderId"]) =>
-    appStore.loginProvider(providerId),
+  registerHandler(
+    shellBridgeChannels.loginProvider,
+    (providerId: AppStoreState["selectedProviderId"]) => appStore.loginProvider(providerId),
   );
   registerHandler(shellBridgeChannels.openClaudeTokenFile, () => appStore.openClaudeTokenFile());
-  registerHandler(shellBridgeChannels.refreshProvider, (providerId: AppStoreState["selectedProviderId"]) =>
-    appStore.refreshProvider(providerId),
+  registerHandler(
+    shellBridgeChannels.refreshProvider,
+    (providerId: AppStoreState["selectedProviderId"]) => appStore.refreshProvider(providerId),
   );
-  registerHandler(shellBridgeChannels.reloadClaudeTokenFile, () => appStore.reloadClaudeTokenFile());
-  registerHandler(shellBridgeChannels.repairProvider, (providerId: AppStoreState["selectedProviderId"]) =>
-    appStore.repairProvider(providerId),
+  registerHandler(shellBridgeChannels.reloadClaudeTokenFile, () =>
+    appStore.reloadClaudeTokenFile(),
   );
-  registerHandler(shellBridgeChannels.selectProvider, (providerId: AppStoreState["selectedProviderId"]) =>
-    appStore.selectProvider(providerId),
+  registerHandler(
+    shellBridgeChannels.repairProvider,
+    (providerId: AppStoreState["selectedProviderId"]) => appStore.repairProvider(providerId),
+  );
+  registerHandler(
+    shellBridgeChannels.selectProvider,
+    (providerId: AppStoreState["selectedProviderId"]) => appStore.selectProvider(providerId),
   );
   registerHandler(
     shellBridgeChannels.setProviderEnabled,
     (payload: { enabled: boolean; providerId: AppStoreState["selectedProviderId"] }) =>
       appStore.setProviderEnabled(payload.providerId, payload.enabled),
   );
-  registerHandler(shellBridgeChannels.setProviderOrder, (providerOrder: AppStoreState["selectedProviderId"][]) =>
-    appStore.setProviderOrder(providerOrder),
+  registerHandler(
+    shellBridgeChannels.setProviderOrder,
+    (providerOrder: AppStoreState["selectedProviderId"][]) =>
+      appStore.setProviderOrder(providerOrder),
   );
   registerHandler(shellBridgeChannels.startRefreshScheduler, (intervalMs: number) =>
     appStore.startRefreshScheduler(intervalMs),

@@ -14,7 +14,7 @@ interface PopupWindowLike {
   hide: () => void;
   isVisible: () => boolean;
   loadFile: (filePath: string) => Promise<void>;
-  on: (...args: unknown[]) => unknown;
+  on: (eventName: string, listener: (...args: never[]) => unknown) => unknown;
   show: () => void;
   webContents: PopupWebContentsLike;
 }
@@ -22,6 +22,11 @@ interface PopupWindowLike {
 type BrowserWindowConstructorLike = new (
   options: BrowserWindowConstructorOptions,
 ) => PopupWindowLike;
+
+type PopupControllerWindowLike = Pick<
+  PopupWindowLike,
+  "center" | "focus" | "hide" | "isVisible" | "show"
+>;
 
 interface PopupController {
   hide: () => boolean;
@@ -64,7 +69,7 @@ const createPopupWindow = async (
   return popupWindow;
 };
 
-const createPopupController = (popupWindow: PopupWindowLike): PopupController => ({
+const createPopupController = (popupWindow: PopupControllerWindowLike): PopupController => ({
   hide: (): boolean => {
     if (!popupWindow.isVisible()) {
       return false;
