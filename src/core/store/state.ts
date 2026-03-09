@@ -1,5 +1,3 @@
-/* eslint-disable import/consistent-type-specifier-style, no-duplicate-imports, sort-imports */
-
 import { createDefaultConfig } from "@/core/config/schema.ts";
 import {
   claudeCookieSources,

@@ -88,9 +88,7 @@ const createPopupWindowOptions = (preloadPath: string): BrowserWindowConstructor
 const createPopupWindow = (
   BrowserWindowClass: BrowserWindowConstructorLike,
   preloadPath: string,
-): PopupWindowLike => {
-  return new BrowserWindowClass(createPopupWindowOptions(preloadPath));
-};
+): PopupWindowLike => new BrowserWindowClass(createPopupWindowOptions(preloadPath));
 
 const loadPopupWindowContent = async (
   popupWindow: PopupWindowLike,

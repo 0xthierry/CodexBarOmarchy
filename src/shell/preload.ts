@@ -1,12 +1,6 @@
-/* eslint-disable @typescript-eslint/promise-function-async, import/consistent-type-specifier-style, sort-imports */
-
 import { contextBridge, ipcRenderer } from "electron";
-import {
-  shellBridgeChannels,
-  type AppStoreState,
-  type OmarchyBarBridge,
-  type ProviderId,
-} from "@/shell/bridge.ts";
+import { shellBridgeChannels } from "@/shell/bridge.ts";
+import type { AppStoreState, OmarchyBarBridge, ProviderId } from "@/shell/bridge.ts";
 
 const omarchyBarBridge: OmarchyBarBridge = {
   getState: () => ipcRenderer.invoke(shellBridgeChannels.getState),

@@ -1,5 +1,3 @@
-/* eslint-disable import/no-nodejs-modules */
-
 import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
 import { explicitNull } from "@/core/providers/shared.ts";

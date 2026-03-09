@@ -33,6 +33,7 @@
     "src/**/*.tsx",
     "test/**/*.ts",
     "test/**/*.tsx",
+    "e2e/**/*.ts",
     "scripts/**/*.ts",
     "*.ts",
     "*.tsx"

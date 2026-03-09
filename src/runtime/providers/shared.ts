@@ -2,10 +2,8 @@ import {
   createErrorProviderActionResult,
   createSuccessfulProviderActionResult,
 } from "@/core/actions/action-result.ts";
-import {
-  createRefreshActionResult,
-  type ProviderRefreshActionResult,
-} from "@/core/actions/provider-adapter.ts";
+import { createRefreshActionResult } from "@/core/actions/provider-adapter.ts";
+import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
 import type { ProviderRuntimeSnapshot } from "@/core/store/runtime-state.ts";

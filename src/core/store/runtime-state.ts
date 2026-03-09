@@ -1,5 +1,3 @@
-/* eslint-disable import/consistent-type-specifier-style, no-duplicate-imports, sort-imports */
-
 import { providerActionNames } from "@/core/actions/action-result.ts";
 import type { ProviderActionName } from "@/core/actions/action-result.ts";
 import type { ProviderId } from "@/core/providers/provider-id.ts";

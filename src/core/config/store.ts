@@ -1,5 +1,3 @@
-/* eslint-disable import/no-nodejs-modules, sort-imports */
-
 import {
   chmod as chmodFile,
   mkdir as createDirectory,

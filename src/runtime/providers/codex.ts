@@ -1,5 +1,3 @@
-/* eslint-disable max-lines-per-function, max-statements, no-magic-numbers, no-ternary, sort-imports */
-
 import { createSuccessfulProviderActionResult } from "@/core/actions/action-result.ts";
 import type {
   CodexProviderAdapter,
@@ -137,7 +135,7 @@ const resolveCodexNativeBinaryPath = async (host: RuntimeHost): Promise<string |
 
   for (const candidatePath of candidatePaths) {
     if (await host.fileSystem.fileExists(candidatePath)) {
-      return await host.fileSystem.realPath(candidatePath);
+      return host.fileSystem.realPath(candidatePath);
     }
   }
 
@@ -189,7 +187,7 @@ const parseCodexUsageBaseUrl = (configContents: string): string => {
       continue;
     }
 
-    const trimmedValue = value.replace(/^['"]|['"]$/gu, "").trim();
+    const trimmedValue = value.replaceAll(/^['"]|['"]$/gu, "").trim();
 
     if (trimmedValue !== "") {
       return trimmedValue;
@@ -534,7 +532,7 @@ const fetchCodexOAuthSnapshot = async (
           );
         }
 
-        return await fetchUsage(refreshedAccessToken, false);
+        return fetchUsage(refreshedAccessToken, false);
       }
 
       return createRefreshError("codex", "Codex OAuth request unauthorized. Run `codex login`.");
@@ -573,7 +571,7 @@ const fetchCodexOAuthSnapshot = async (
     );
   };
 
-  return await fetchUsage(accessToken, true);
+  return fetchUsage(accessToken, true);
 };
 
 const formatResetAt = (unixSeconds: number | undefined): string | null => {
@@ -651,7 +649,7 @@ const parseCodexCliSnapshot = (
   updatedAt: string,
   version: string | null,
 ): ProviderRefreshActionResult<"codex"> => {
-  const rateLimits = rateLimitResult.rateLimits;
+  const { rateLimits } = rateLimitResult;
   const metrics = [];
   const primaryPercent = rateLimits?.primary?.usedPercent;
   const secondaryPercent = rateLimits?.secondary?.usedPercent;
@@ -803,10 +801,10 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
     }
 
     if (resolvedSource === "oauth") {
-      return await fetchCodexOAuthSnapshot(host);
+      return fetchCodexOAuthSnapshot(host);
     }
 
-    return await fetchCodexCliSnapshot(host);
+    return fetchCodexCliSnapshot(host);
   },
 });
 

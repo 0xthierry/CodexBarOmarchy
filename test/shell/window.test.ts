@@ -1,5 +1,3 @@
-/* eslint-disable no-magic-numbers, no-undefined, sort-imports */
-
 import { expect, test } from "bun:test";
 import {
   blurDismissArmingDelayMs,

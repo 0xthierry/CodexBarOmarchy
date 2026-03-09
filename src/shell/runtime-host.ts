@@ -1,5 +1,3 @@
-/* eslint-disable import/no-nodejs-modules, max-lines, max-lines-per-function */
-
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readFile, realpath, writeFile } from "node:fs/promises";
@@ -84,7 +82,7 @@ const runCommand = async (
     timeoutMs?: number;
   },
 ): Promise<RuntimeCommandResult> =>
-  await new Promise<RuntimeCommandResult>((resolve) => {
+  new Promise<RuntimeCommandResult>((resolve) => {
     const child = spawn(command, args, {
       env: process.env,
       stdio: "pipe",
@@ -237,7 +235,7 @@ const createCommandLineSession = async (
         return null;
       }
 
-      return await new Promise<string | null>((resolve) => {
+      return new Promise<string | null>((resolve) => {
         const reader = (line: string | null): void => {
           if (timeoutHandle !== null) {
             globalThis.clearTimeout(timeoutHandle);
@@ -330,21 +328,22 @@ const createRuntimeHost = (): RuntimeHost => ({
   commands: {
     createLineSession: createCommandLineSession,
     run: runCommand,
-    which: async (command: string) => await findExecutable(command),
+    which: async (command: string) => findExecutable(command),
   },
   env: process.env,
   fileSystem: {
     fileExists,
-    realPath: async (filePath: string) => await realpath(filePath),
-    readTextFile: async (filePath: string) => await readFile(filePath, "utf8"),
-    writeTextFile: async (filePath: string, contents: string) =>
-      await writeFile(filePath, contents, "utf8"),
+    readTextFile: async (filePath: string) => readFile(filePath, "utf8"),
+    realPath: async (filePath: string) => realpath(filePath),
+    writeTextFile: async (filePath: string, contents: string) => {
+      await writeFile(filePath, contents, "utf8");
+    },
   },
   homeDirectory: process.env["HOME"] ?? "",
   http: {
     request: async (url: string, options: RuntimeHttpRequestOptions = {}) => {
       const abortController = new AbortController();
-      const timeoutMs = options.timeoutMs;
+      const { timeoutMs } = options;
       const timeoutHandle =
         typeof timeoutMs === "number"
           ? globalThis.setTimeout(() => {

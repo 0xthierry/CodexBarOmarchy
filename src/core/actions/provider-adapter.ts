@@ -1,5 +1,3 @@
-/* eslint-disable import/consistent-type-specifier-style, no-duplicate-imports, sort-imports, @typescript-eslint/promise-function-async */
-
 import {
   createErrorProviderActionResult,
   createUnsupportedProviderActionResult,

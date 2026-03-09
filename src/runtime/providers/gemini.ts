@@ -1,5 +1,3 @@
-/* eslint-disable max-lines-per-function, max-statements, no-continue, no-magic-numbers, no-ternary, sort-imports */
-
 import { createSuccessfulProviderActionResult } from "@/core/actions/action-result.ts";
 import type {
   GeminiProviderAdapter,
@@ -67,7 +65,7 @@ const resolveGeminiOauthPath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".gemini", "oauth_creds.json");
 
 const resolveGeminiVersion = async (host: RuntimeHost): Promise<string | null> =>
-  await readCommandVersion(host, "gemini", ["--version"], geminiTimeoutMs);
+  readCommandVersion(host, "gemini", ["--version"], geminiTimeoutMs);
 
 const readGeminiAuthType = async (host: RuntimeHost): Promise<string | null> => {
   const settingsPayload = await readJsonFile(host, resolveGeminiSettingsPath(host));
@@ -273,7 +271,7 @@ const discoverGeminiProjectId = async (
     return explicitNull;
   }
 
-  const projects = projectsPayload["projects"];
+  const { projects } = projectsPayload;
 
   if (!Array.isArray(projects)) {
     return explicitNull;
@@ -407,7 +405,7 @@ const parseGeminiQuotaSnapshot = (
     }
   }
 
-  const metrics = Array.from(metricsByLabel.entries()).map(([label, metric]) => ({
+  const metrics = [...metricsByLabel.entries()].map(([label, metric]) => ({
     detail: metric.detail,
     label,
     value: formatFractionPercent(metric.value),
@@ -565,7 +563,7 @@ const fetchGeminiApiSnapshot = async (
         );
       }
 
-      return await fetchQuotaSnapshot(refreshedCredentials, false);
+      return fetchQuotaSnapshot(refreshedCredentials, false);
     }
 
     if (quotaResponse.statusCode !== 200) {
@@ -592,7 +590,7 @@ const fetchGeminiApiSnapshot = async (
     );
   };
 
-  return await fetchQuotaSnapshot(credentials, true);
+  return fetchQuotaSnapshot(credentials, true);
 };
 
 const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter => ({
@@ -610,7 +608,7 @@ const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter =
       return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");
     }
 
-    return await fetchGeminiApiSnapshot(host);
+    return fetchGeminiApiSnapshot(host);
   },
 });
 

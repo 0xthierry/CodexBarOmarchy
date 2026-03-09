@@ -1,5 +1,3 @@
-/* eslint-disable import/consistent-type-specifier-style, sort-imports */
-
 import type { AppStore } from "@/core/store/app-store.ts";
 import { registerStoreIpc } from "@/shell/ipc.ts";
 import type { IpcMainLike } from "@/shell/ipc.ts";

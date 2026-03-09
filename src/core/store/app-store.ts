@@ -1,10 +1,5 @@
-/* eslint-disable import/consistent-type-specifier-style, max-lines, max-lines-per-function, max-statements, no-duplicate-imports, no-ternary, no-void, require-await, sort-imports, @typescript-eslint/promise-function-async, @typescript-eslint/return-await */
-
-import {
-  createErrorProviderActionResult,
-  type ProviderActionName,
-  type ProviderActionStatus,
-} from "@/core/actions/action-result.ts";
+import { createErrorProviderActionResult } from "@/core/actions/action-result.ts";
+import type { ProviderActionName, ProviderActionStatus } from "@/core/actions/action-result.ts";
 import {
   createDefaultProviderAdapters,
   createRefreshActionResult,
@@ -15,7 +10,7 @@ import {
   dispatchReloadTokenFileAction,
 } from "@/core/actions/provider-adapter.ts";
 import { initializeConfigWithDetection } from "@/core/detection/provider-detection.ts";
-import { explicitNull, createProviderMap } from "@/core/providers/shared.ts";
+import { createProviderMap, explicitNull } from "@/core/providers/shared.ts";
 import type { ProviderMap } from "@/core/providers/shared.ts";
 import {
   setClaudeConfig,
@@ -238,7 +233,7 @@ const createPersistConfig = (configStore: ConfigStore, runtime: AppStoreRuntime)
 const createSelectProvider =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
   async (providerId: ProviderId): Promise<AppStoreState> =>
-    await persistConfig(setSelectedProvider(runtime.currentState.config, providerId));
+    persistConfig(setSelectedProvider(runtime.currentState.config, providerId));
 
 const createSetClaudeConfig =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
@@ -247,7 +242,7 @@ const createSetClaudeConfig =
       providerConfig: AppStoreConfig["providers"]["claude"],
     ) => AppStoreConfig["providers"]["claude"],
   ): Promise<AppStoreState> =>
-    await persistConfig(setClaudeConfig(runtime.currentState.config, updater));
+    persistConfig(setClaudeConfig(runtime.currentState.config, updater));
 
 const createSetCodexConfig =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
@@ -256,7 +251,7 @@ const createSetCodexConfig =
       providerConfig: AppStoreConfig["providers"]["codex"],
     ) => AppStoreConfig["providers"]["codex"],
   ): Promise<AppStoreState> =>
-    await persistConfig(setCodexConfig(runtime.currentState.config, updater));
+    persistConfig(setCodexConfig(runtime.currentState.config, updater));
 
 const createSetGeminiConfig =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
@@ -265,17 +260,17 @@ const createSetGeminiConfig =
       providerConfig: AppStoreConfig["providers"]["gemini"],
     ) => AppStoreConfig["providers"]["gemini"],
   ): Promise<AppStoreState> =>
-    await persistConfig(setGeminiConfig(runtime.currentState.config, updater));
+    persistConfig(setGeminiConfig(runtime.currentState.config, updater));
 
 const createSetProviderEnabled =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
   async (providerId: ProviderId, enabled: boolean): Promise<AppStoreState> =>
-    await persistConfig(setProviderEnabled(runtime.currentState.config, providerId, enabled));
+    persistConfig(setProviderEnabled(runtime.currentState.config, providerId, enabled));
 
 const createSetProviderOrder =
   (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
   async (providerOrder: ProviderId[]): Promise<AppStoreState> =>
-    await persistConfig(setProviderOrder(runtime.currentState.config, providerOrder));
+    persistConfig(setProviderOrder(runtime.currentState.config, providerOrder));
 
 const createActionView = <ActionValue extends ProviderActionName>(
   currentActionView: ProviderActionView<ActionValue>,
@@ -493,7 +488,7 @@ const createRefreshEnabledProviders =
     runtime: AppStoreRuntime,
   ) =>
   async (): Promise<RefreshActionResult[]> =>
-    await Promise.all(
+    Promise.all(
       runtime.currentState.enabledProviderIds.map((providerId) => refreshProvider(providerId)),
     );
 
