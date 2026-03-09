@@ -1,6 +1,8 @@
 import {
   BoxRenderable,
   ScrollBoxRenderable,
+  SelectRenderable,
+  SelectRenderableEvents,
   TabSelectRenderable,
   TabSelectRenderableEvents,
   TextRenderable,
@@ -86,9 +88,25 @@ interface MockProviderView {
 
 interface AppState {
   globalActions: ActionRow[];
+  isSettingsModalOpen: boolean;
   message: string;
   providers: Record<ProviderId, MockProviderView>;
   selectedProviderId: ProviderId;
+  settingsModalFocus: "choices" | "list";
+  settingsModalChoiceIndex: number;
+  settingsModalSelectedIndex: number;
+}
+
+interface SettingsModalItem {
+  allowedValues?: string[];
+  currentValue: string;
+  description: string;
+  editKind: "readonly" | "select" | "toggle";
+  indentLevel?: number;
+  key: string;
+  kind: "option" | "setting";
+  label: string;
+  note: string;
 }
 
 interface ThemeCandidate {
@@ -404,6 +422,7 @@ const createMockState = (): AppState => ({
     { hint: "mock: show about screen", key: "i", label: "about" },
     { hint: "quit the panel", key: "q", label: "quit" },
   ],
+  isSettingsModalOpen: false,
   message: "1-3 select  h/l move  r refresh  e toggle  a/u/s/,/i app menu  q quit",
   providers: {
     claude: {
@@ -606,6 +625,9 @@ const createMockState = (): AppState => ({
     },
   },
   selectedProviderId: "codex",
+  settingsModalChoiceIndex: 0,
+  settingsModalFocus: "list",
+  settingsModalSelectedIndex: 0,
 });
 
 const buildTabsText = (state: AppState): string =>
@@ -687,6 +709,166 @@ const buildInfoText = (provider: MockProviderView): string =>
   provider.infoRows
     .map(({ label, value }) => `${label.padEnd(8, " ")} ${formatInfoValue(label, value)}`)
     .join("\n");
+
+const getSelectedProvider = (state: AppState): MockProviderView =>
+  state.providers[state.selectedProviderId];
+
+const codexUsageChoices = ["auto", "oauth", "cli"] as const;
+const codexCookieChoices = ["auto", "manual", "off"] as const;
+const claudeUsageChoices = ["auto", "oauth", "web", "cli"] as const;
+const claudeCookieChoices = ["auto", "manual"] as const;
+
+const buildSettingsModalSettingItem = (
+  provider: MockProviderView,
+  setting: SettingsRow,
+  options?: { indentLevel?: number },
+): SettingsModalItem => {
+  let allowedValues: string[] | undefined;
+  let editKind: SettingsModalItem["editKind"] = "readonly";
+
+  if (provider.id === "codex" && setting.key === "source") {
+    allowedValues = [...codexUsageChoices];
+    editKind = "select";
+  } else if (provider.id === "codex" && setting.key === "cookies") {
+    allowedValues = [...codexCookieChoices];
+    editKind = "select";
+  } else if (provider.id === "claude" && setting.key === "source") {
+    allowedValues = [...claudeUsageChoices];
+    editKind = "select";
+  } else if (provider.id === "claude" && setting.key === "cookies") {
+    allowedValues = [...claudeCookieChoices];
+    editKind = "select";
+  }
+
+  return {
+    allowedValues,
+    currentValue: setting.value,
+    description:
+      editKind === "select"
+        ? `Current: ${humanizeEnum(setting.value)}`
+        : `${shortSettingLabel(setting.label)}  ${humanizeEnum(setting.value)}`,
+    editKind,
+    indentLevel: options?.indentLevel ?? 0,
+    key: setting.key,
+    kind: "setting",
+    label: setting.label,
+    note:
+      editKind === "select"
+        ? (setting.note ?? "Choose one of the supported values.")
+        : (setting.note ?? "Read-only in this spike."),
+  };
+};
+
+const buildSettingsModalOptionItem = (option: OptionRow): SettingsModalItem => ({
+  currentValue: option.value,
+  description: option.value === "on" ? "enabled" : "disabled",
+  editKind: "toggle",
+  key: option.key,
+  kind: "option",
+  label: option.label,
+  note: option.note ?? "Boolean option.",
+});
+
+const createSettingsModalItems = (provider: MockProviderView): SettingsModalItem[] => {
+  if (provider.id === "codex") {
+    const usageSetting = provider.settings.find((setting) => setting.key === "source");
+    const cookieSetting = provider.settings.find((setting) => setting.key === "cookies");
+    const headerSetting = provider.settings.find((setting) => setting.key === "header");
+    const historyOption = provider.options.find((option) => option.key === "history");
+    const webOption = provider.options.find((option) => option.key === "web");
+    const items: SettingsModalItem[] = [];
+
+    if (usageSetting !== undefined) {
+      items.push(buildSettingsModalSettingItem(provider, usageSetting));
+    }
+
+    if (historyOption !== undefined) {
+      items.push(buildSettingsModalOptionItem(historyOption));
+    }
+
+    if (webOption !== undefined) {
+      items.push(buildSettingsModalOptionItem(webOption));
+
+      if (webOption.value === "on" && cookieSetting !== undefined) {
+        items.push(
+          buildSettingsModalSettingItem(provider, cookieSetting, {
+            indentLevel: 1,
+          }),
+        );
+
+        if (cookieSetting.value.toLowerCase() === "manual" && headerSetting !== undefined) {
+          items.push(
+            buildSettingsModalSettingItem(provider, headerSetting, {
+              indentLevel: 1,
+            }),
+          );
+        }
+      }
+    }
+
+    return items;
+  }
+
+  const items: SettingsModalItem[] = [];
+
+  for (const setting of provider.settings) {
+    items.push(buildSettingsModalSettingItem(provider, setting));
+  }
+
+  for (const option of provider.options) {
+    items.push(buildSettingsModalOptionItem(option));
+  }
+
+  return items;
+};
+
+const clampSettingsModalSelection = (state: AppState): void => {
+  const itemCount = createSettingsModalItems(getSelectedProvider(state)).length;
+
+  if (itemCount === 0) {
+    state.settingsModalSelectedIndex = 0;
+    return;
+  }
+
+  state.settingsModalSelectedIndex = Math.max(
+    0,
+    Math.min(state.settingsModalSelectedIndex, itemCount - 1),
+  );
+};
+
+const getSelectedSettingsModalItem = (state: AppState): SettingsModalItem | null => {
+  const items = createSettingsModalItems(getSelectedProvider(state));
+
+  return items[state.settingsModalSelectedIndex] ?? null;
+};
+
+const syncSettingsModalChoice = (state: AppState): void => {
+  const selectedItem = getSelectedSettingsModalItem(state);
+  const allowedValues = selectedItem?.allowedValues;
+
+  if (allowedValues === undefined || allowedValues.length === 0) {
+    state.settingsModalChoiceIndex = 0;
+    return;
+  }
+
+  const selectedIndex = allowedValues.indexOf(selectedItem.currentValue.toLowerCase());
+  state.settingsModalChoiceIndex = selectedIndex === -1 ? 0 : selectedIndex;
+};
+
+const buildConfigPanelText = (provider: MockProviderView): string => {
+  const settingCount = provider.settings.length;
+  const optionCount = provider.options.length;
+
+  return [
+    "settings moved to modal",
+    "press , to open",
+    "",
+    `${settingCount} setting${settingCount === 1 ? "" : "s"}`,
+    `${optionCount} option${optionCount === 1 ? "" : "s"}`,
+    "checkbox rows for options",
+    `source ${humanizeEnum(provider.source)}`,
+  ].join("\n");
+};
 
 const packActionLines = (prefix: string, actions: ActionRow[]): string[] =>
   actions.reduce<string[]>((lines, action, actionIndex) => {
@@ -817,6 +999,118 @@ const triggerGlobalAction = (state: AppState, keyName: string, render: () => voi
   return true;
 };
 
+const openSettingsModal = (state: AppState): void => {
+  state.isSettingsModalOpen = true;
+  state.settingsModalFocus = "list";
+  clampSettingsModalSelection(state);
+  syncSettingsModalChoice(state);
+  state.message = `Settings modal open for ${state.selectedProviderId}.`;
+};
+
+const closeSettingsModal = (state: AppState): void => {
+  state.isSettingsModalOpen = false;
+  state.settingsModalFocus = "list";
+  state.message = `Closed settings for ${state.selectedProviderId}.`;
+};
+
+const toggleSelectedSettingsModalOption = (state: AppState): void => {
+  const provider = getSelectedProvider(state);
+  const selectedItem = getSelectedSettingsModalItem(state);
+
+  if (selectedItem?.kind !== "option") {
+    return;
+  }
+
+  const option = provider.options.find((entry) => entry.key === selectedItem.key);
+
+  if (option === undefined) {
+    return;
+  }
+
+  option.value = option.value === "on" ? "off" : "on";
+  state.message = `${selectedItem.label} ${option.value === "on" ? "enabled" : "disabled"}.`;
+};
+
+const applySettingsModalChoice = (state: AppState): void => {
+  const provider = getSelectedProvider(state);
+  const selectedItem = getSelectedSettingsModalItem(state);
+
+  if (selectedItem?.kind !== "setting" || selectedItem.allowedValues === undefined) {
+    return;
+  }
+
+  const setting = provider.settings.find((entry) => entry.key === selectedItem.key);
+
+  if (setting === undefined) {
+    return;
+  }
+
+  const nextValue = selectedItem.allowedValues[state.settingsModalChoiceIndex];
+
+  if (typeof nextValue !== "string") {
+    return;
+  }
+
+  setting.value = nextValue;
+  state.settingsModalFocus = "list";
+  syncSettingsModalChoice(state);
+  state.message = `${selectedItem.label} updated to ${humanizeEnum(nextValue)}.`;
+};
+
+const getSettingsItemLabel = (item: SettingsModalItem): string => {
+  if (item.key === "source") {
+    return "Usage";
+  }
+
+  if (item.key === "cookies") {
+    return "Cookies";
+  }
+
+  return shortSettingLabel(item.label);
+};
+
+const buildSettingsListLabel = (item: SettingsModalItem): string => {
+  const prefix = item.indentLevel === 1 ? "  > " : "";
+
+  if (item.kind === "option") {
+    return `${prefix}[${item.currentValue === "on" ? "x" : " "}] ${item.label}`;
+  }
+
+  if (item.editKind === "select" && item.allowedValues !== undefined) {
+    return `${prefix}${getSettingsItemLabel(item)} (${item.allowedValues.join(" / ")})`;
+  }
+
+  return `${prefix}${truncate(getSettingsItemLabel(item), 12).padEnd(12, " ")} ${truncate(humanizeEnum(item.currentValue), 12)}`;
+};
+
+const buildSettingsDetailText = (
+  provider: MockProviderView,
+  item: SettingsModalItem | null,
+): string => {
+  if (item === null) {
+    return "No setting selected.";
+  }
+
+  const interactionHint =
+    item.editKind === "toggle"
+      ? "Press Enter to toggle this option."
+      : item.editKind === "select"
+        ? "Press Tab to focus choices, then Enter to apply."
+        : "Read-only in this spike.";
+
+  return [
+    `${provider.id.toUpperCase()}  ${provider.subtitle}`,
+    `${item.kind === "option" ? "option" : "setting"}  •  ${item.key}`,
+    "",
+    item.label,
+    `Current  ${humanizeEnum(item.currentValue)}`,
+    "",
+    item.note,
+    "",
+    interactionHint,
+  ].join("\n");
+};
+
 const handleKeyInput = (
   key: { ctrl?: boolean; name: string },
   state: AppState,
@@ -825,6 +1119,58 @@ const handleKeyInput = (
 ): boolean => {
   if (key.name === "q" || (key.ctrl === true && key.name === "c")) {
     return true;
+  }
+
+  if (state.isSettingsModalOpen) {
+    if (key.name === "escape" || key.name === ",") {
+      closeSettingsModal(state);
+      render();
+      return false;
+    }
+
+    if (key.name === "tab") {
+      const selectedItem = getSelectedSettingsModalItem(state);
+
+      if (selectedItem?.editKind === "select") {
+        state.settingsModalFocus = state.settingsModalFocus === "list" ? "choices" : "list";
+        render();
+      }
+
+      return false;
+    }
+
+    if (state.settingsModalFocus === "list" && key.name === "enter") {
+      const selectedItem = getSelectedSettingsModalItem(state);
+
+      if (selectedItem?.editKind === "toggle") {
+        toggleSelectedSettingsModalOption(state);
+        render();
+      } else if (selectedItem?.editKind === "select") {
+        state.settingsModalFocus = "choices";
+        render();
+      }
+
+      return false;
+    }
+
+    if (state.settingsModalFocus === "list" && key.name === "space") {
+      const selectedItem = getSelectedSettingsModalItem(state);
+
+      if (selectedItem?.editKind === "toggle") {
+        toggleSelectedSettingsModalOption(state);
+        render();
+      }
+
+      return false;
+    }
+
+    return false;
+  }
+
+  if (key.name === ",") {
+    openSettingsModal(state);
+    render();
+    return false;
   }
 
   if (key.name === "1" || key.name === "2" || key.name === "3") {
@@ -953,6 +1299,120 @@ const runInteractiveSpike = async (): Promise<void> => {
     height: 1,
     width: "100%",
   });
+  const settingsOverlay = new BoxRenderable(renderer, {
+    alignItems: "center",
+    backgroundColor: theme.background,
+    height: "100%",
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    top: 0,
+    visible: false,
+    width: "100%",
+    zIndex: 40,
+  });
+  const settingsModalBox = new BoxRenderable(renderer, {
+    border: true,
+    borderColor: theme.color2,
+    flexDirection: "column",
+    height: "72%",
+    title: "settings",
+    width: "72%",
+  });
+  const settingsModalHeader = new TextRenderable(renderer, {
+    content: "",
+    fg: theme.foreground,
+    height: 3,
+    width: "100%",
+    wrapMode: "word",
+  });
+  const settingsModalBody = new BoxRenderable(renderer, {
+    flexDirection: "row",
+    flexGrow: 1,
+    gap: 1,
+    width: "100%",
+  });
+  const settingsListBox = new BoxRenderable(renderer, {
+    border: true,
+    borderColor: theme.color2,
+    focusedBorderColor: theme.accent,
+    title: "items",
+    width: "44%",
+  });
+  const settingsSelect = new SelectRenderable(renderer, {
+    backgroundColor: theme.background,
+    descriptionColor: theme.color8,
+    focusedBackgroundColor: theme.background,
+    focusedTextColor: theme.foreground,
+    height: "100%",
+    itemSpacing: 1,
+    selectedBackgroundColor: theme.color2,
+    selectedDescriptionColor: theme.background,
+    selectedTextColor: theme.background,
+    showDescription: true,
+    showScrollIndicator: true,
+    textColor: theme.foreground,
+    width: "100%",
+    wrapSelection: true,
+  });
+  const settingsDetailColumn = new BoxRenderable(renderer, {
+    flexDirection: "column",
+    gap: 1,
+    height: "100%",
+    width: "56%",
+  });
+  const settingsDetailBox = new BoxRenderable(renderer, {
+    border: true,
+    borderColor: theme.color4,
+    flexGrow: 1,
+    title: "detail",
+    width: "100%",
+  });
+  const settingsDetailScroll = new ScrollBoxRenderable(renderer, {
+    backgroundColor: theme.background,
+    flexGrow: 1,
+    padding: 1,
+    scrollY: true,
+    width: "100%",
+  });
+  const settingsDetailText = new TextRenderable(renderer, {
+    content: "",
+    fg: theme.foreground,
+    height: "100%",
+    width: "100%",
+    wrapMode: "word",
+  });
+  const settingsChoicesBox = new BoxRenderable(renderer, {
+    border: true,
+    borderColor: theme.color3,
+    focusedBorderColor: theme.accent,
+    height: 8,
+    title: "choices",
+    width: "100%",
+  });
+  const settingsChoices = new SelectRenderable(renderer, {
+    backgroundColor: theme.background,
+    descriptionColor: theme.color8,
+    focusedBackgroundColor: theme.background,
+    focusedTextColor: theme.foreground,
+    height: "100%",
+    itemSpacing: 1,
+    selectedBackgroundColor: theme.color3,
+    selectedDescriptionColor: theme.background,
+    selectedTextColor: theme.background,
+    showDescription: true,
+    showScrollIndicator: true,
+    textColor: theme.foreground,
+    width: "100%",
+    wrapSelection: true,
+  });
+  const settingsModalFooter = new TextRenderable(renderer, {
+    content: "Tab switch focus  •  Enter toggle/apply  •  Esc close",
+    fg: theme.color8,
+    height: 1,
+    width: "100%",
+    wrapMode: "none",
+  });
 
   const headerText = new TextRenderable(renderer, {
     content: "",
@@ -1050,6 +1510,18 @@ const runInteractiveSpike = async (): Promise<void> => {
   menuScroll.add(actionsText);
   menuBox.add(menuScroll);
   footerBox.add(footerText);
+  settingsListBox.add(settingsSelect);
+  settingsDetailScroll.add(settingsDetailText);
+  settingsDetailBox.add(settingsDetailScroll);
+  settingsChoicesBox.add(settingsChoices);
+  settingsDetailColumn.add(settingsDetailBox);
+  settingsDetailColumn.add(settingsChoicesBox);
+  settingsModalBody.add(settingsListBox);
+  settingsModalBody.add(settingsDetailColumn);
+  settingsModalBox.add(settingsModalHeader);
+  settingsModalBox.add(settingsModalBody);
+  settingsModalBox.add(settingsModalFooter);
+  settingsOverlay.add(settingsModalBox);
 
   leftColumn.add(usageBox);
   rightColumn.add(detailsBox);
@@ -1060,10 +1532,14 @@ const runInteractiveSpike = async (): Promise<void> => {
   shell.add(body);
   shell.add(menuBox);
   shell.add(footerBox);
+  shell.add(settingsOverlay);
   root.add(shell);
 
   const render = (): void => {
     const provider = state.providers[state.selectedProviderId];
+    const settingsItems = createSettingsModalItems(provider);
+
+    clampSettingsModalSelection(state);
 
     headerText.content = buildHeaderText(state).slice(1).join("\n");
     providerTabs.setOptions(
@@ -1081,9 +1557,50 @@ const runInteractiveSpike = async (): Promise<void> => {
 
     usageText.content = buildProviderSummaryText(provider).join("\n");
     detailsText.content = buildInfoText(provider);
-    configText.content = `settings\n${buildSettingsText(provider)}\n\noptions\n${buildOptionsText(provider)}`;
+    configText.content = buildConfigPanelText(provider);
     actionsText.content = buildMenuText(state);
-    footerText.content = state.message;
+    settingsModalBox.title = `settings • ${provider.id}`;
+    settingsModalHeader.content = [
+      `${provider.id.toUpperCase()}  ${provider.subtitle}`,
+      `${humanizeEnum(provider.plan)}  •  ${humanizeEnum(provider.source)}  •  ${provider.enabled ? "enabled" : "disabled"}`,
+    ].join("\n");
+    settingsSelect.options = settingsItems.map((item) => ({
+      description: item.description,
+      name: buildSettingsListLabel(item),
+      value: item.key,
+    }));
+
+    if (settingsSelect.getSelectedIndex() !== state.settingsModalSelectedIndex) {
+      settingsSelect.setSelectedIndex(state.settingsModalSelectedIndex);
+    }
+
+    const selectedSettingsItem = getSelectedSettingsModalItem(state);
+    const availableChoices = selectedSettingsItem?.allowedValues ?? [];
+
+    settingsDetailText.content = buildSettingsDetailText(provider, selectedSettingsItem);
+    settingsChoicesBox.title =
+      selectedSettingsItem?.editKind === "select"
+        ? `choices • ${truncate(shortSettingLabel(selectedSettingsItem.label), 14)}`
+        : "choices";
+    settingsChoices.options = availableChoices.map((value) => ({
+      description: value === selectedSettingsItem?.currentValue ? "current" : "available",
+      name: humanizeEnum(value),
+      value,
+    }));
+
+    if (settingsChoices.getSelectedIndex() !== state.settingsModalChoiceIndex) {
+      settingsChoices.setSelectedIndex(state.settingsModalChoiceIndex);
+    }
+
+    settingsChoicesBox.visible = selectedSettingsItem?.editKind === "select";
+    settingsListBox.borderColor = state.settingsModalFocus === "list" ? theme.accent : theme.color2;
+    settingsDetailBox.borderColor = theme.color4;
+    settingsChoicesBox.borderColor =
+      state.settingsModalFocus === "choices" ? theme.accent : theme.color3;
+    settingsOverlay.visible = state.isSettingsModalOpen;
+    footerText.content = state.isSettingsModalOpen
+      ? "settings modal  •  Tab switch focus  •  Enter toggle/apply  •  Esc close"
+      : state.message;
     renderer.requestRender();
   };
 
@@ -1106,13 +1623,59 @@ const runInteractiveSpike = async (): Promise<void> => {
     (_index: number, option?: { value?: unknown }) => {
       if (option?.value === "codex" || option?.value === "claude" || option?.value === "gemini") {
         setSelectedProvider(state, option.value);
+        clampSettingsModalSelection(state);
+        syncSettingsModalChoice(state);
         render();
       }
     },
   );
 
+  settingsSelect.on(SelectRenderableEvents.SELECTION_CHANGED, (index: number) => {
+    state.settingsModalSelectedIndex = index;
+    syncSettingsModalChoice(state);
+    render();
+  });
+
+  settingsSelect.on(SelectRenderableEvents.ITEM_SELECTED, () => {
+    const selectedItem = getSelectedSettingsModalItem(state);
+
+    if (selectedItem?.editKind === "toggle") {
+      toggleSelectedSettingsModalOption(state);
+      render();
+      return;
+    }
+
+    if (selectedItem?.editKind === "select") {
+      state.settingsModalFocus = "choices";
+      settingsChoices.focus();
+      render();
+    }
+  });
+
+  settingsChoices.on(SelectRenderableEvents.SELECTION_CHANGED, (index: number) => {
+    state.settingsModalChoiceIndex = index;
+  });
+
+  settingsChoices.on(SelectRenderableEvents.ITEM_SELECTED, () => {
+    applySettingsModalChoice(state);
+    settingsSelect.focus();
+    render();
+  });
+
   renderer.keyInput.on("keypress", (key) => {
-    const shouldQuit = handleKeyInput(key, state, theme, render);
+    const shouldQuit = handleKeyInput(key, state, theme, () => {
+      if (state.isSettingsModalOpen) {
+        if (state.settingsModalFocus === "choices") {
+          settingsChoices.focus();
+        } else {
+          settingsSelect.focus();
+        }
+      } else {
+        providerTabs.focus();
+      }
+
+      render();
+    });
 
     if (!shouldQuit) {
       return;
@@ -1137,10 +1700,13 @@ if (import.meta.main) {
 }
 
 export {
+  applySettingsModalChoice,
   createMockState,
+  createSettingsModalItems,
   loadActiveOmarchyTheme,
   parseTheme,
   renderPlainTextSnapshot,
+  toggleSelectedSettingsModalOption,
   type AppState,
   type MockProviderView,
   type OmarchyTheme,

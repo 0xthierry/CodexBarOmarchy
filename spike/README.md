@@ -86,12 +86,17 @@ The full OpenTUI surface is larger than what this spike should use. After trying
   - <https://opentui.com/docs/components/tab-select/>
 - `ScrollBox` makes sense inside the usage, details, config, and menu panes so the spike keeps one canonical layout instead of reintroducing compact-mode branches.
   - <https://opentui.com/docs/components/scrollbox/>
+- A modal is possible even though OpenTUI does not expose a first-class `Modal` component in the docs. The spike builds the settings modal from a `Box` overlay with layout positioning, `zIndex`, and `visible` state.
+  - <https://opentui.com/docs/components/box/>
+  - <https://opentui.com/docs/core-concepts/layout/>
+- `Select` makes sense inside the settings modal. It gives us a proper keyboardable list instead of a raw text dump, and it lets boolean options read like checkbox rows.
+  - <https://opentui.com/docs/components/select/>
 - OpenTUI layout is still doing the heavy lifting underneath the shell.
   - <https://opentui.com/docs/core-concepts/layout/>
 
 Features intentionally not kept in the main spike:
 
-- `Select`, `Input`, `Markdown`, `Code`, and `Diff` made the panel feel like a generic terminal workbench instead of an Omarchy-native status surface.
+- `Markdown`, `Code`, and `Diff` made the panel feel like a generic terminal workbench instead of an Omarchy-native status surface.
 - React/Solid bindings are unnecessary for this spike.
 - Animations are not a priority for a dense quota/account panel.
 
@@ -110,7 +115,8 @@ Features intentionally not kept in the main spike:
   - reads the active Omarchy theme from `~/.config/omarchy/current/theme/colors.toml`
   - uses e2e-derived mock provider data
   - mirrors CodexBar's popup hierarchy in a denser TUI layout
-  - keeps only `TabSelect`, `ScrollBox`, `Box`, and `Text` from the wider OpenTUI evaluation
+  - keeps the main surface lean, but uses `Select` inside the settings modal where it materially improves UX
+  - opens provider settings in a centered modal overlay with `,` and closes it with `Esc`
   - falls back to a plain text snapshot when run without a TTY
 - `omarchy-native-look-and-feel.test.ts`
   - covers the pure theme/state formatting helpers
@@ -136,6 +142,11 @@ bun run spike:omarchy-look:open
 - `1`, `2`, `3`: select provider directly
 - `Left`, `Right`: move between providers through the focused tab control
 - `h`, `l`: move left/right in vim-style
+- `,`: open the settings modal
+- `Tab`: switch between settings items and allowed values when a setting is selectable
+- `Enter`: toggle boolean options or apply the selected setting value
+- `Space`: toggle the selected checkbox-style option
+- `Esc`: close the settings modal
 - `r`: mock refresh
 - `e`: toggle provider enabled state
 - `q`: quit

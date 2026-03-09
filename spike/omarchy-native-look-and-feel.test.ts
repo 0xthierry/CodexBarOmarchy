@@ -1,7 +1,10 @@
 import {
+  applySettingsModalChoice,
   createMockState,
+  createSettingsModalItems,
   parseTheme,
   renderPlainTextSnapshot,
+  toggleSelectedSettingsModalOption,
 } from "./omarchy-native-look-and-feel.ts";
 import { describe, expect, test } from "bun:test";
 
@@ -46,5 +49,46 @@ describe("omarchy native look spike", () => {
 
     expect(state.selectedProviderId).toBe("codex");
     expect(state.providers.codex.source).toBe("oauth");
+  });
+
+  test("builds structured settings modal items for the selected provider", () => {
+    const state = createMockState();
+    const items = createSettingsModalItems(state.providers.codex);
+
+    expect(items).toHaveLength(3);
+    expect(items.map((item) => item.key)).toEqual(["source", "history", "web"]);
+    expect(items[0]?.kind).toBe("setting");
+    expect(items[0]?.editKind).toBe("select");
+    expect(items[1]?.kind).toBe("option");
+    expect(items[1]?.label).toBe("Historical tracking");
+  });
+
+  test("places codex cookie controls below openai web extras when extras are enabled", () => {
+    const state = createMockState();
+
+    state.providers.codex.options[1].value = "on";
+    const items = createSettingsModalItems(state.providers.codex);
+
+    expect(items.map((item) => item.key)).toEqual(["source", "history", "web", "cookies"]);
+    expect(items[3]?.indentLevel).toBe(1);
+  });
+
+  test("updates select-backed setting values through the settings modal helper", () => {
+    const state = createMockState();
+
+    state.settingsModalSelectedIndex = 0;
+    state.settingsModalChoiceIndex = 1;
+    applySettingsModalChoice(state);
+
+    expect(state.providers.codex.settings[0]?.value).toBe("oauth");
+  });
+
+  test("toggles boolean options through the settings modal helper", () => {
+    const state = createMockState();
+
+    state.settingsModalSelectedIndex = 1;
+    toggleSelectedSettingsModalOption(state);
+
+    expect(state.providers.codex.options[0]?.value).toBe("off");
   });
 });
