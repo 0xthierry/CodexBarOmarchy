@@ -10,9 +10,9 @@ import {
 } from "../src/core/providers/claude.ts";
 import { codexCookieSources, codexUsageSources } from "../src/core/providers/codex.ts";
 import { createAppStore } from "../src/core/store/app-store.ts";
-import type { AppStoreState } from "../src/shell/bridge.ts";
+import type { AppStoreState } from "../src/core/store/state.ts";
 import { createRuntimeProviderAdapters } from "../src/runtime/provider-adapters.ts";
-import { createRuntimeHost } from "../src/shell/runtime-host.ts";
+import { createRuntimeHost } from "../src/runtime/node-host.ts";
 
 const providerIds = ["codex", "claude", "gemini"] as const;
 
@@ -358,7 +358,9 @@ const sanitizeProviderView = (providerView: ProviderView): unknown => {
   };
 };
 
-const printAppUiState = (_state: AppStoreState): void => {};
+const printAppUiState = (state: AppStoreState): void => {
+  console.log(JSON.stringify(state, null, 2));
+};
 
 const printProviderView = (_providerId: ProviderId, providerView: ProviderView): void => {
   void sanitizeProviderView(providerView);
