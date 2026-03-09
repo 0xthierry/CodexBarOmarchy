@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unsafe-type-assertion, max-lines, max-lines-per-function, unicorn/prefer-query-selector */
-
 import type {
   AppStoreState,
   ClaudeConfigPatch,
@@ -9,6 +7,12 @@ import type {
   ProviderId,
 } from "@/shell/bridge.ts";
 import {
+  claudeCookieSources,
+  claudePromptPolicies,
+  claudeUsageSources,
+} from "@/core/providers/claude.ts";
+import { codexCookieSources, codexUsageSources } from "@/core/providers/codex.ts";
+import {
   defaultRefreshSchedulerIntervalMs,
   minimumRefreshSchedulerIntervalMs,
   normalizeRefreshSchedulerIntervalMs,
@@ -17,6 +21,19 @@ const providerIds = ["codex", "claude", "gemini"] as const;
 
 type ClaudeTokenAction = "open" | "reload" | "remove";
 type ProviderAction = "login" | "refresh" | "repair";
+type ProviderConfigUpdate =
+  | {
+      patch: ClaudeConfigPatch;
+      providerId: "claude";
+    }
+  | {
+      patch: CodexConfigPatch;
+      providerId: "codex";
+    }
+  | {
+      patch: GeminiConfigPatch;
+      providerId: "gemini";
+    };
 type SchedulerAction = "start" | "stop";
 type FormFieldElement = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 
@@ -369,25 +386,101 @@ const getClosestElement = (target: EventTarget | null, selector: string): HTMLEl
   return closestElement instanceof HTMLElement ? closestElement : null;
 };
 
+const isOneOf = <ValueType extends string>(
+  allowedValues: readonly ValueType[],
+  value: string,
+): value is ValueType => allowedValues.some((candidate) => candidate === value);
+
+const readStringValue = (target: FormFieldElement): string | null => {
+  if (target instanceof HTMLTextAreaElement) {
+    return target.value === "" ? null : target.value;
+  }
+
+  return target.value;
+};
+
+const createProviderConfigUpdate = (
+  providerId: ProviderId,
+  configKey: string,
+  patchValue: boolean | string | null,
+): ProviderConfigUpdate | null => {
+  if (providerId === "claude") {
+    if (configKey === "cookieSource" && typeof patchValue === "string") {
+      return isOneOf(claudeCookieSources, patchValue)
+        ? { patch: { cookieSource: patchValue }, providerId }
+        : null;
+    }
+
+    if (configKey === "oauthPromptFreeCredentialsEnabled" && typeof patchValue === "boolean") {
+      return { patch: { oauthPromptFreeCredentialsEnabled: patchValue }, providerId };
+    }
+
+    if (configKey === "oauthPromptPolicy" && typeof patchValue === "string") {
+      return isOneOf(claudePromptPolicies, patchValue)
+        ? { patch: { oauthPromptPolicy: patchValue }, providerId }
+        : null;
+    }
+
+    if (configKey === "source" && typeof patchValue === "string") {
+      return isOneOf(claudeUsageSources, patchValue)
+        ? { patch: { source: patchValue }, providerId }
+        : null;
+    }
+
+    return null;
+  }
+
+  if (providerId === "codex") {
+    if (configKey === "cookieHeader" && (typeof patchValue === "string" || patchValue === null)) {
+      return { patch: { cookieHeader: patchValue }, providerId };
+    }
+
+    if (configKey === "cookieSource" && typeof patchValue === "string") {
+      return isOneOf(codexCookieSources, patchValue)
+        ? { patch: { cookieSource: patchValue }, providerId }
+        : null;
+    }
+
+    if (configKey === "extrasEnabled" && typeof patchValue === "boolean") {
+      return { patch: { extrasEnabled: patchValue }, providerId };
+    }
+
+    if (configKey === "historicalTrackingEnabled" && typeof patchValue === "boolean") {
+      return { patch: { historicalTrackingEnabled: patchValue }, providerId };
+    }
+
+    if (configKey === "source" && typeof patchValue === "string") {
+      return isOneOf(codexUsageSources, patchValue)
+        ? { patch: { source: patchValue }, providerId }
+        : null;
+    }
+
+    return null;
+  }
+
+  if (configKey === "enabled" && typeof patchValue === "boolean") {
+    return { patch: { enabled: patchValue }, providerId };
+  }
+
+  return null;
+};
+
 const createConfigUpdater =
   (bridge: OmarchyBarBridge) =>
-  async (
-    providerId: ProviderId,
-    patch: ClaudeConfigPatch | CodexConfigPatch | GeminiConfigPatch,
-  ): Promise<void> => {
-    if (providerId === "claude") {
-      await bridge.updateClaudeConfig(patch as ClaudeConfigPatch);
+  async (update: ProviderConfigUpdate): Promise<void> => {
+    if (update.providerId === "claude") {
+      await bridge.updateClaudeConfig(update.patch);
 
       return;
     }
 
-    if (providerId === "codex") {
-      await bridge.updateCodexConfig(patch as CodexConfigPatch);
+    if (update.providerId === "codex") {
+      await bridge.updateCodexConfig(update.patch);
 
       return;
     }
 
-    await bridge.updateGeminiConfig(patch as GeminiConfigPatch);
+    await bridge.updateGeminiConfig(update.patch);
   };
 
 const createReorderedProviderIds = (
@@ -422,15 +515,7 @@ const mountPopupApp = async (rootElement: HTMLElement, bridge: OmarchyBarBridge)
     rootElement.innerHTML = renderAppMarkup(currentState);
   };
 
-  const readStringValue = (target: FormFieldElement): string | null => {
-    if (target instanceof HTMLTextAreaElement) {
-      return target.value === "" ? null : target.value;
-    }
-
-    return target.value;
-  };
-
-  rootElement.addEventListener("click", async (event) => {
+  const handleClick = async (event: MouseEvent): Promise<void> => {
     const selectedProviderButton = getClosestElement(event.target, "[data-select-provider]");
     const selectedProviderId = selectedProviderButton?.dataset["selectProvider"];
 
@@ -477,7 +562,7 @@ const mountPopupApp = async (rootElement: HTMLElement, bridge: OmarchyBarBridge)
 
     if (isSchedulerAction(schedulerAction)) {
       if (schedulerAction === "start") {
-        const intervalInput = document.getElementById("scheduler-interval");
+        const intervalInput = document.querySelector("#scheduler-interval");
         const intervalMs = normalizeRefreshSchedulerIntervalMs(
           intervalInput instanceof HTMLInputElement
             ? Number.parseInt(intervalInput.value, 10)
@@ -511,7 +596,7 @@ const mountPopupApp = async (rootElement: HTMLElement, bridge: OmarchyBarBridge)
       }
 
       if (claudeTokenAction === "remove") {
-        const selectElement = document.getElementById("claude-token-account-select");
+        const selectElement = document.querySelector("#claude-token-account-select");
 
         if (!(selectElement instanceof HTMLSelectElement)) {
           return;
@@ -522,15 +607,18 @@ const mountPopupApp = async (rootElement: HTMLElement, bridge: OmarchyBarBridge)
           (_account, index) => index !== accountIndex,
         );
 
-        await bridge.updateClaudeConfig({
-          activeTokenAccountIndex: 0,
-          tokenAccounts: nextTokenAccounts,
+        await updateProviderConfig({
+          patch: {
+            activeTokenAccountIndex: 0,
+            tokenAccounts: nextTokenAccounts,
+          },
+          providerId: "claude",
         });
       }
     }
-  });
+  };
 
-  rootElement.addEventListener("change", async (event) => {
+  const handleChange = async (event: Event): Promise<void> => {
     const target =
       event.target instanceof HTMLInputElement ||
       event.target instanceof HTMLSelectElement ||
@@ -551,7 +639,7 @@ const mountPopupApp = async (rootElement: HTMLElement, bridge: OmarchyBarBridge)
     }
 
     const configProviderId = target.dataset["providerConfig"];
-    const configKey = target.dataset["configKey"];
+    const { configKey } = target.dataset;
 
     if (isProviderId(configProviderId) && configKey !== undefined) {
       const patchValue =
@@ -559,45 +647,67 @@ const mountPopupApp = async (rootElement: HTMLElement, bridge: OmarchyBarBridge)
           ? target.checked
           : readStringValue(target);
 
-      await updateProviderConfig(configProviderId, {
-        [configKey]: patchValue,
-      });
+      const configUpdate = createProviderConfigUpdate(configProviderId, configKey, patchValue);
+
+      if (configUpdate === null) {
+        return;
+      }
+
+      await updateProviderConfig(configUpdate);
 
       return;
     }
 
     if (target.id === "claude-token-account-select") {
-      await bridge.updateClaudeConfig({
-        activeTokenAccountIndex: Number.parseInt(target.value, 10),
+      await updateProviderConfig({
+        patch: {
+          activeTokenAccountIndex: Number.parseInt(target.value, 10),
+        },
+        providerId: "claude",
       });
     }
-  });
+  };
 
-  rootElement.addEventListener("submit", async (event) => {
+  const handleSubmit = async (event: SubmitEvent): Promise<void> => {
     if (!(event.target instanceof HTMLFormElement) || event.target.id !== "claude-token-form") {
       return;
     }
 
     event.preventDefault();
 
-    const labelInput = document.getElementById("claude-token-label");
-    const tokenInput = document.getElementById("claude-token-value");
+    const labelInput = document.querySelector("#claude-token-label");
+    const tokenInput = document.querySelector("#claude-token-value");
 
     if (!(labelInput instanceof HTMLInputElement) || !(tokenInput instanceof HTMLInputElement)) {
       return;
     }
 
-    await bridge.updateClaudeConfig({
-      tokenAccounts: [
-        ...currentState.config.providers.claude.tokenAccounts,
-        {
-          label: labelInput.value,
-          token: tokenInput.value,
-        },
-      ],
+    await updateProviderConfig({
+      patch: {
+        tokenAccounts: [
+          ...currentState.config.providers.claude.tokenAccounts,
+          {
+            label: labelInput.value,
+            token: tokenInput.value,
+          },
+        ],
+      },
+      providerId: "claude",
     });
 
     event.target.reset();
+  };
+
+  rootElement.addEventListener("click", (event) => {
+    void handleClick(event);
+  });
+
+  rootElement.addEventListener("change", (event) => {
+    void handleChange(event);
+  });
+
+  rootElement.addEventListener("submit", (event) => {
+    void handleSubmit(event);
   });
 
   const unsubscribe = bridge.subscribe((state) => {

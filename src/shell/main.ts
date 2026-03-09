@@ -1,6 +1,4 @@
-/* eslint-disable import/consistent-type-specifier-style, import/no-nodejs-modules, no-console, sort-imports, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/promise-function-async, @typescript-eslint/return-await, promise/always-return, promise/prefer-await-to-callbacks, promise/prefer-await-to-then, unicorn/no-null, unicorn/prefer-top-level-await */
-
-import { app, BrowserWindow, ipcMain, nativeImage, Tray } from "electron";
+import { BrowserWindow, Tray, app, ipcMain, nativeImage } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConfigStore } from "@/core/config/store.ts";
@@ -10,8 +8,8 @@ import { createRuntimeProviderAdapters } from "@/runtime/provider-adapters.ts";
 import { createRuntimeHost } from "@/shell/runtime-host.ts";
 import { startShellSession } from "@/shell/session.ts";
 import type { ShellSession } from "@/shell/session.ts";
-import { createPopupWindow, loadPopupWindowContent } from "@/shell/window.ts";
-import type { BrowserWindowConstructorLike } from "@/shell/window.ts";
+import { createPopupWindowOptions, loadPopupWindowContent } from "@/shell/window.ts";
+import type { PopupWindowLike } from "@/shell/window.ts";
 
 const startupFailureExitCode = 1;
 const shellDirectoryPath = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +25,43 @@ const createElectronTray = (): Tray => {
   return new Tray(trayIcon);
 };
 
+const createElectronPopupWindow = (): PopupWindowLike => {
+  const browserWindow = new BrowserWindow(
+    createPopupWindowOptions(join(shellDirectoryPath, "preload.cjs")),
+  );
+
+  return {
+    center: () => {
+      browserWindow.center();
+    },
+    focus: () => {
+      browserWindow.focus();
+    },
+    hide: () => {
+      browserWindow.hide();
+    },
+    isVisible: () => browserWindow.isVisible(),
+    loadFile: (filePath) => browserWindow.loadFile(filePath),
+    on: (eventName, listener) => {
+      if (eventName === "blur") {
+        browserWindow.on("blur", () => {
+          listener();
+        });
+      }
+
+      return browserWindow;
+    },
+    show: () => {
+      browserWindow.show();
+    },
+    webContents: {
+      send: (channel, state) => {
+        browserWindow.webContents.send(channel, state);
+      },
+    },
+  };
+};
+
 let activeSessionPromise: Promise<ShellSession> | null = null;
 
 const startShell = (): Promise<ShellSession> => {
@@ -38,15 +73,11 @@ const startShell = (): Promise<ShellSession> => {
 
   return startShellSession({
     appStore,
-    createPopupWindow: () =>
-      createPopupWindow(
-        BrowserWindow as unknown as BrowserWindowConstructorLike,
-        join(shellDirectoryPath, "preload.cjs"),
-      ),
+    createPopupWindow: createElectronPopupWindow,
     createTray: createElectronTray,
     ipcMain,
-    loadPopupWindow: async (popupWindow) =>
-      await loadPopupWindowContent(popupWindow, join(distDirectoryPath, "ui", "index.html")),
+    loadPopupWindow: (popupWindow) =>
+      loadPopupWindowContent(popupWindow, join(distDirectoryPath, "ui", "index.html")),
   });
 };
 
@@ -70,6 +101,8 @@ const runShell = async (): Promise<void> => {
     sessionPromise
       .then((session) => {
         session.dispose();
+
+        return;
       })
       .catch((error: unknown) => {
         console.error("Failed to dispose the shell session.", error);
@@ -79,6 +112,8 @@ const runShell = async (): Promise<void> => {
     ensureShellSession()
       .then((session) => {
         session.popupController.toggle();
+
+        return;
       })
       .catch((error: unknown) => {
         console.error("Failed to toggle the popup window.", error);

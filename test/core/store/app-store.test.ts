@@ -11,6 +11,7 @@ import {
 
 const firstSavedConfigIndex = 0;
 const lastSavedConfigIndex = -1;
+const noop = (): void => {};
 const slowSaveDelayMs = 20;
 const updatedTimestamp = "2026-03-08T12:00:00.000Z";
 
@@ -306,7 +307,7 @@ test("persists provider-specific configuration updates", async () => {
 });
 
 test("shows in-flight refresh state and applies the final provider snapshot once", async () => {
-  let resolveRefresh = (): void => {};
+  let resolveRefresh = noop;
   let refreshCallCount = 0;
   const refreshReady = new Promise<void>((resolve) => {
     resolveRefresh = resolve;

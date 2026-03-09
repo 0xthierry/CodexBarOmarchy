@@ -1,5 +1,3 @@
-/* eslint-disable import/max-dependencies, import/no-nodejs-modules, import/no-relative-parent-imports, max-lines-per-function, max-params, max-statements, no-magic-numbers, no-undefined, sort-imports, unicorn/no-array-for-each, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
-
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +29,17 @@ const assert = (condition: boolean, message: string): void => {
   }
 };
 
+const isProviderId = (value: string): value is ProviderId =>
+  value === providerIds[0] || value === providerIds[1] || value === providerIds[2];
+
+const sanitizeTokenAccounts = (
+  tokenAccounts: { label: string; token: string }[],
+): { label: string; token: string }[] =>
+  tokenAccounts.map((account) => ({
+    label: account.label,
+    token: "[redacted]",
+  }));
+
 const parseRequestedProviders = (): ProviderId[] => {
   const args = process.argv.slice(2);
   const providerArg = args.find((value) => value.startsWith("--provider="));
@@ -49,14 +58,17 @@ const parseRequestedProviders = (): ProviderId[] => {
     fail("Expected at least one provider in --provider=<codex,claude,gemini>.");
   }
 
+  const selectedProviderIds: ProviderId[] = [];
+
   for (const providerId of rawProviderIds) {
-    assert(
-      providerIds.includes(providerId as ProviderId),
-      `Unknown provider "${providerId}". Expected one of: ${providerIds.join(", ")}.`,
-    );
+    if (!isProviderId(providerId)) {
+      fail(`Unknown provider "${providerId}". Expected one of: ${providerIds.join(", ")}.`);
+    } else {
+      selectedProviderIds.push(providerId);
+    }
   }
 
-  return rawProviderIds as ProviderId[];
+  return selectedProviderIds;
 };
 
 const assertExactStringArray = (
@@ -318,14 +330,6 @@ const sanitizeProviderView = (providerView: ProviderView): unknown => {
   }
 
   if (providerView.id === "claude") {
-    const sanitizeTokenAccounts = (
-      tokenAccounts: { label: string; token: string }[],
-    ): { label: string; token: string }[] =>
-      tokenAccounts.map((account) => ({
-        label: account.label,
-        token: "[redacted]",
-      }));
-
     return {
       actions: providerView.actions,
       config: {
@@ -354,18 +358,20 @@ const sanitizeProviderView = (providerView: ProviderView): unknown => {
   };
 };
 
-const printAppUiState = (state: AppStoreState): void => {};
+const printAppUiState = (_state: AppStoreState): void => {};
 
-const printProviderView = (providerId: ProviderId, providerView: ProviderView): void => {};
+const printProviderView = (_providerId: ProviderId, providerView: ProviderView): void => {
+  void sanitizeProviderView(providerView);
+};
 
 const getProviderView = (state: AppStoreState, providerId: ProviderId): ProviderView => {
   const providerView = state.providerViews.find((candidate) => candidate.id === providerId);
 
-  if (providerView === undefined) {
-    fail(`${providerId}: expected provider view in app state.`);
+  if (providerView !== undefined) {
+    return providerView;
   }
 
-  return providerView;
+  throw new Error(`${providerId}: expected provider view in app state.`);
 };
 
 const assertAppUiState = (state: AppStoreState): void => {
@@ -377,10 +383,7 @@ const assertAppUiState = (state: AppStoreState): void => {
     state.selectedProviderId === state.config.selectedProvider,
     "app-ui: selected provider mismatch.",
   );
-  assert(
-    state.scheduler.active === false,
-    "app-ui: scheduler should be inactive during host integration.",
-  );
+  assert(!state.scheduler.active, "app-ui: scheduler should be inactive during host integration.");
   assert(
     state.scheduler.intervalMs === null,
     "app-ui: scheduler interval should be null before the loop starts.",
@@ -432,12 +435,12 @@ const main = async (): Promise<void> => {
 
       printProviderView(providerId, providerView);
 
-      if (providerId === "codex") {
+      if (providerView.id === "codex") {
         assertCodexProviderView(providerView);
         continue;
       }
 
-      if (providerId === "claude") {
+      if (providerView.id === "claude") {
         assertClaudeProviderView(providerView);
         continue;
       }
@@ -452,5 +455,6 @@ const main = async (): Promise<void> => {
 await main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
 
+  console.error(message);
   process.exit(1);
 });

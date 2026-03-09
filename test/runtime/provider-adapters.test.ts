@@ -1,10 +1,8 @@
-/* eslint-disable import/no-relative-parent-imports, max-lines-per-function, max-statements, no-magic-numbers, promise/prefer-await-to-then, sort-imports, typescript-eslint/promise-function-async */
-
 import { afterEach, expect, test } from "bun:test";
 import {
   access,
-  mkdtemp,
   mkdir,
+  mkdtemp,
   readFile,
   realpath,
   rm,
@@ -23,6 +21,13 @@ import type {
   RuntimeHttpResponse,
 } from "../../src/runtime/host.ts";
 import { createRuntimeProviderAdapters } from "../../src/runtime/provider-adapters.ts";
+import {
+  isRecord,
+  parseJsonText,
+  readFiniteNumber,
+  readNestedRecord,
+  readString,
+} from "../../src/runtime/providers/shared.ts";
 
 interface CommandFixture {
   exitCode: number;
@@ -82,6 +87,16 @@ const createTextResponse = (bodyText: string, statusCode = 200): RuntimeHttpResp
   },
   statusCode,
 });
+
+const parseJsonRecord = (value: string): Record<string, unknown> => {
+  const parsedValue = parseJsonText(value);
+
+  if (!isRecord(parsedValue)) {
+    throw new TypeError("Expected JSON object.");
+  }
+
+  return parsedValue;
+};
 
 const writeText = async (filePath: string, contents: string): Promise<void> => {
   await mkdir(dirname(filePath), { recursive: true });
@@ -194,7 +209,13 @@ const createHostFixture = async (
           throw new Error(`No fake HTTP response registered for ${method} ${url}.`);
         }
 
-        return responseQueue.shift()!;
+        const response = responseQueue.shift();
+
+        if (response === undefined) {
+          throw new Error(`No fake HTTP response registered for ${method} ${url}.`);
+        }
+
+        return response;
       },
     },
     now: (): Date => new Date(input.now ?? updatedAt),
@@ -452,9 +473,9 @@ test("codex falls back to the app-server CLI path when oauth is unavailable", as
   ]);
   expect(
     fixture.lineSessions["codex -s read-only -a never app-server"]?.writes.map((line) => {
-      const payload = JSON.parse(line) as { method?: string };
+      const payload = parseJsonRecord(line);
 
-      return payload.method ?? explicitNull;
+      return readString(payload, "method") ?? explicitNull;
     }),
   ).toEqual(["initialize", "initialized", "account/read", "account/rateLimits/read"]);
 });
@@ -570,14 +591,12 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
     config: createConfig(),
     providerConfig: createConfig().providers.claude,
   });
-  const persistedCredentials = JSON.parse(await readFile(credentialsPath, "utf8")) as {
-    claudeAiOauth: {
-      accessToken: string;
-      expiresAt: number;
-      refreshToken: string;
-      scopes: string[];
-    };
-  };
+  const persistedCredentials = parseJsonRecord(await readFile(credentialsPath, "utf8"));
+  const claudeAiOauth = readNestedRecord(persistedCredentials, "claudeAiOauth");
+
+  if (claudeAiOauth === null) {
+    throw new Error("Expected Claude OAuth credentials to be persisted.");
+  }
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
@@ -601,10 +620,10 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
       value: "47%",
     },
   ]);
-  expect(persistedCredentials.claudeAiOauth.accessToken).toBe("claude-new-access-token");
-  expect(persistedCredentials.claudeAiOauth.refreshToken).toBe("claude-new-refresh-token");
-  expect(persistedCredentials.claudeAiOauth.scopes).toEqual(["user:inference", "user:profile"]);
-  expect(persistedCredentials.claudeAiOauth.expiresAt).toBeGreaterThan(Date.parse(updatedAt));
+  expect(readString(claudeAiOauth, "accessToken")).toBe("claude-new-access-token");
+  expect(readString(claudeAiOauth, "refreshToken")).toBe("claude-new-refresh-token");
+  expect(claudeAiOauth["scopes"]).toEqual(["user:inference", "user:profile"]);
+  expect(readFiniteNumber(claudeAiOauth, "expiresAt")).toBeGreaterThan(Date.parse(updatedAt));
   expect(fixture.httpRequests.map((request) => request.url)).toEqual([
     "https://platform.claude.com/v1/oauth/token",
     "https://api.anthropic.com/api/oauth/usage",
@@ -786,19 +805,18 @@ test("codex refreshes oauth tokens after an unauthorized usage response using cl
     config: createConfig(),
     providerConfig: createConfig().providers.codex,
   });
-  const persistedAuth = JSON.parse(await readFile(authPath, "utf8")) as {
-    last_refresh: string;
-    tokens: {
-      access_token: string;
-      refresh_token: string;
-    };
-  };
+  const persistedAuth = parseJsonRecord(await readFile(authPath, "utf8"));
+  const persistedTokens = readNestedRecord(persistedAuth, "tokens");
+
+  if (persistedTokens === null) {
+    throw new Error("Expected Codex tokens to be persisted.");
+  }
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
   expect(refreshResult.snapshot?.accountEmail).toBe("codex@example.com");
-  expect(persistedAuth.tokens.access_token).toBe("codex-new-access-token");
-  expect(persistedAuth.tokens.refresh_token).toBe("codex-new-refresh-token");
+  expect(readString(persistedTokens, "access_token")).toBe("codex-new-access-token");
+  expect(readString(persistedTokens, "refresh_token")).toBe("codex-new-refresh-token");
   expect(fixture.httpRequests.map((request) => request.url)).toEqual([
     "https://chatgpt.com/backend-api/wham/usage",
     "https://auth.openai.com/oauth/token",
@@ -1351,17 +1369,20 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
     config: createConfig(),
     providerConfig: createConfig().providers.gemini,
   });
-  const persistedCredentials = JSON.parse(await readFile(oauthPath, "utf8")) as {
-    access_token: string;
-    expiry_date: number;
-    id_token: string;
-  };
+  const persistedCredentials = parseJsonRecord(await readFile(oauthPath, "utf8"));
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("api");
   expect(refreshResult.snapshot?.accountEmail).toBe("gemini@example.com");
   expect(refreshResult.snapshot?.planLabel).toBe("Free");
   expect(refreshResult.snapshot?.version).toBe("0.29.7");
+  expect(readString(persistedCredentials, "access_token")).toBe("gemini-new-access-token");
+  expect(readFiniteNumber(persistedCredentials, "expiry_date")).toBeGreaterThan(
+    Date.parse(updatedAt),
+  );
+  expect(readString(persistedCredentials, "id_token")).toBe(
+    "header.eyJlbWFpbCI6ImdlbWluaUBleGFtcGxlLmNvbSJ9.signature",
+  );
   expect(refreshResult.snapshot?.metrics).toEqual([
     {
       detail: "tomorrow",
@@ -1374,11 +1395,11 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
       value: "41%",
     },
   ]);
-  expect(persistedCredentials.access_token).toBe("gemini-new-access-token");
-  expect(persistedCredentials.id_token).toBe(
+  expect(persistedCredentials["access_token"]).toBe("gemini-new-access-token");
+  expect(persistedCredentials["id_token"]).toBe(
     "header.eyJlbWFpbCI6ImdlbWluaUBleGFtcGxlLmNvbSJ9.signature",
   );
-  expect(persistedCredentials.expiry_date).toBeGreaterThan(Date.parse(updatedAt));
+  expect(persistedCredentials["expiry_date"]).toBeGreaterThan(Date.parse(updatedAt));
 });
 
 test("gemini retries an unauthorized quota response only once", async () => {

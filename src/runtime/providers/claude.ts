@@ -1,5 +1,3 @@
-/* eslint-disable max-lines-per-function, max-statements, no-magic-numbers, no-ternary, sort-imports */
-
 import {
   createErrorProviderActionResult,
   createSuccessfulProviderActionResult,
@@ -26,13 +24,13 @@ import {
   readNestedRecord,
   readString,
   writeJsonFile,
-  type ProviderMetricInput,
 } from "@/runtime/providers/shared.ts";
+import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
 
 const claudeOAuthRefreshEndpoint = "https://platform.claude.com/v1/oauth/token";
 const claudeOAuthUsageEndpoint = "https://api.anthropic.com/api/oauth/usage";
 const claudeStatusInput = "/status\n";
-const claudeTimeoutMs = 8_000;
+const claudeTimeoutMs = 8000;
 const claudeTokenFileNames = ["session-token.json", "session.json"] as const;
 const claudeStatsCacheFileName = "stats-cache.json";
 const claudeStateFileName = ".claude.json";
@@ -81,6 +79,35 @@ interface ClaudeStatsRecord {
   toolCallCount: number | null;
 }
 
+const isProviderMetricInput = (value: unknown): value is ProviderMetricInput => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value["label"] === "string" &&
+    value["label"] !== "" &&
+    typeof value["value"] === "string" &&
+    value["value"] !== "" &&
+    (value["detail"] === undefined ||
+      value["detail"] === null ||
+      typeof value["detail"] === "string")
+  );
+};
+
+const readProviderMetrics = (
+  record: Record<string, unknown>,
+  key: string,
+): ProviderMetricInput[] | null => {
+  const metrics = record[key];
+
+  if (!Array.isArray(metrics)) {
+    return explicitNull;
+  }
+
+  return metrics.every((metric) => isProviderMetricInput(metric)) ? metrics : explicitNull;
+};
+
 const resolveClaudeOauthPath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".claude", ".credentials.json");
 
@@ -100,7 +127,7 @@ const resolveClaudeBinaryPath = async (host: RuntimeHost): Promise<string | null
     return explicitNull;
   }
 
-  return await host.fileSystem.realPath(binaryPath);
+  return host.fileSystem.realPath(binaryPath);
 };
 
 const resolveClaudeOAuthClientId = async (host: RuntimeHost): Promise<string> => {
@@ -143,7 +170,7 @@ const resolveClaudeTokenFilePath = async (host: RuntimeHost): Promise<string | n
 };
 
 const resolveClaudeVersion = async (host: RuntimeHost): Promise<string | null> =>
-  await readCommandVersion(host, "claude", ["--version"], claudeTimeoutMs);
+  readCommandVersion(host, "claude", ["--version"], claudeTimeoutMs);
 
 const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMetricInput[] => {
   const metrics: ProviderMetricInput[] = [];
@@ -520,7 +547,7 @@ const fetchClaudeWebUsage = async (
   const organizationsPayload = parseJsonText(organizationsResponse.bodyText);
 
   if (!Array.isArray(organizationsPayload)) {
-    throw new Error("Claude organizations response was invalid.");
+    throw new TypeError("Claude organizations response was invalid.");
   }
 
   const firstOrganization = organizationsPayload.find((entry) => isRecord(entry));
@@ -652,13 +679,15 @@ const parseClaudeWebSnapshot = (
   tokenPayload: unknown,
   updatedAt: string,
 ): ProviderRefreshActionResult<"claude"> => {
-  if (isRecord(tokenPayload) && Array.isArray(tokenPayload["metrics"])) {
+  const webMetrics = isRecord(tokenPayload) ? readProviderMetrics(tokenPayload, "metrics") : null;
+
+  if (isRecord(tokenPayload) && webMetrics !== null) {
     return createRefreshSuccess(
       "claude",
       "Claude refreshed via web session.",
       createSnapshot({
         accountEmail: readString(tokenPayload, "accountEmail"),
-        metrics: tokenPayload["metrics"] as ProviderMetricInput[],
+        metrics: webMetrics,
         planLabel: readString(tokenPayload, "planLabel"),
         sourceLabel: "web",
         updatedAt,
@@ -838,7 +867,7 @@ const fetchClaudeOAuthSnapshot = async (
       }
 
       if (credentials.accessToken !== accessToken) {
-        return await fetchUsage(credentials.accessToken, false);
+        return fetchUsage(credentials.accessToken, false);
       }
     }
 
@@ -879,7 +908,7 @@ const fetchClaudeOAuthSnapshot = async (
     );
   };
 
-  return await fetchUsage(credentials.accessToken, true);
+  return fetchUsage(credentials.accessToken, true);
 };
 
 const resolveClaudeSource = async (
@@ -1058,7 +1087,7 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
         }
       }
 
-      return await refreshViaWeb();
+      return refreshViaWeb();
     }
 
     if (resolvedSource === "cli") {
@@ -1068,10 +1097,10 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
         return cliResult;
       }
 
-      return await refreshViaWeb();
+      return refreshViaWeb();
     }
 
-    return await refreshViaWeb();
+    return refreshViaWeb();
   },
   reloadTokenFile: async (): Promise<
     ReturnType<typeof createErrorProviderActionResult<"claude", "reloadTokenFile">>
