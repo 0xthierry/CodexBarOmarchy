@@ -1,7 +1,5 @@
 # Omarchy Native Look Spike
 
-This folder is intentionally ignored by git.
-
 ## Goal
 
 Prototype the Omarchy-native direction agreed for this project:
@@ -9,7 +7,7 @@ Prototype the Omarchy-native direction agreed for this project:
 - tray click should open or focus a floating terminal panel
 - the panel should feel like an Omarchy tool, not like a generic web popup
 - the UI should follow the active Omarchy theme automatically
-- data is mock-only for now
+- the spike should use e2e-derived provider data, but keep a presentation layer tuned for terminal UX
 
 ## Findings
 
@@ -61,10 +59,9 @@ Reasons:
 - it is TypeScript-first
 - it runs on Bun, which already matches this repo
 - it has a native Zig core instead of pretending the terminal is a browser
-- it exposes renderables we actually need for this panel shape:
+- it exposes the small set of renderables we actually need for this panel shape:
   - boxes
   - text
-  - selects
   - tab selects
   - scroll containers
 
@@ -77,6 +74,26 @@ Official sources:
 Practical caveat:
 
 - `OpenTUI` requires the native package/toolchain path to work, including Zig during package build on this machine
+
+### OpenTUI features worth keeping
+
+The full OpenTUI surface is larger than what this spike should use. After trying a more complex workbench, the useful subset is smaller:
+
+- `Box` + `Text` stay as the main shell primitives. They fit the Omarchy-style boxed layout well.
+  - <https://opentui.com/docs/components/box/>
+  - <https://opentui.com/docs/components/text/>
+- `TabSelect` makes sense for the provider switcher in the header. It improves discoverability without changing the information architecture.
+  - <https://opentui.com/docs/components/tab-select/>
+- `ScrollBox` makes sense inside the usage, details, config, and menu panes so the spike keeps one canonical layout instead of reintroducing compact-mode branches.
+  - <https://opentui.com/docs/components/scrollbox/>
+- OpenTUI layout is still doing the heavy lifting underneath the shell.
+  - <https://opentui.com/docs/core-concepts/layout/>
+
+Features intentionally not kept in the main spike:
+
+- `Select`, `Input`, `Markdown`, `Code`, and `Diff` made the panel feel like a generic terminal workbench instead of an Omarchy-native status surface.
+- React/Solid bindings are unnecessary for this spike.
+- Animations are not a priority for a dense quota/account panel.
 
 ### Omarchy-specific findings that shape the spike
 
@@ -91,8 +108,9 @@ Practical caveat:
   - runnable terminal prototype
   - uses `OpenTUI` for the interactive TTY surface
   - reads the active Omarchy theme from `~/.config/omarchy/current/theme/colors.toml`
-  - uses mock provider data
+  - uses e2e-derived mock provider data
   - mirrors CodexBar's popup hierarchy in a denser TUI layout
+  - keeps only `TabSelect`, `ScrollBox`, `Box`, and `Text` from the wider OpenTUI evaluation
   - falls back to a plain text snapshot when run without a TTY
 - `omarchy-native-look-and-feel.test.ts`
   - covers the pure theme/state formatting helpers
@@ -115,8 +133,8 @@ bun run spike:omarchy-look:open
 
 ## Keys
 
-- `1`, `2`, `3`: select provider
-- `Left`, `Right`: move between providers
+- `1`, `2`, `3`: select provider directly
+- `Left`, `Right`: move between providers through the focused tab control
 - `h`, `l`: move left/right in vim-style
 - `r`: mock refresh
 - `e`: toggle provider enabled state

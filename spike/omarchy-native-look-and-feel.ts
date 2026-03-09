@@ -1,4 +1,11 @@
-import { BoxRenderable, TextRenderable, createCliRenderer } from "@opentui/core";
+import {
+  BoxRenderable,
+  ScrollBoxRenderable,
+  TabSelectRenderable,
+  TabSelectRenderableEvents,
+  TextRenderable,
+  createCliRenderer,
+} from "@opentui/core";
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -739,6 +746,11 @@ const selectRelativeProvider = (state: AppState, direction: -1 | 1): void => {
   state.message = `Selected ${state.selectedProviderId}.`;
 };
 
+const setSelectedProvider = (state: AppState, providerId: ProviderId): void => {
+  state.selectedProviderId = providerId;
+  state.message = `Selected ${state.selectedProviderId}.`;
+};
+
 const toggleSelectedProvider = (state: AppState): void => {
   const provider = state.providers[state.selectedProviderId];
 
@@ -816,19 +828,18 @@ const handleKeyInput = (
   }
 
   if (key.name === "1" || key.name === "2" || key.name === "3") {
-    state.selectedProviderId = providerOrder[Number.parseInt(key.name, 10) - 1] ?? "codex";
-    state.message = `Selected ${state.selectedProviderId}.`;
+    setSelectedProvider(state, providerOrder[Number.parseInt(key.name, 10) - 1] ?? "codex");
     render();
     return false;
   }
 
-  if (key.name === "h" || key.name === "left") {
+  if (key.name === "h") {
     selectRelativeProvider(state, -1);
     render();
     return false;
   }
 
-  if (key.name === "l" || key.name === "right") {
+  if (key.name === "l") {
     selectRelativeProvider(state, 1);
     render();
     return false;
@@ -887,8 +898,8 @@ const runInteractiveSpike = async (): Promise<void> => {
   const headerBox = new BoxRenderable(renderer, {
     border: true,
     borderColor: theme.color5,
-    height: 5,
-    paddingX: 1,
+    flexDirection: "column",
+    height: 6,
     title: "omarchy-agent-bar",
     width: "100%",
   });
@@ -910,11 +921,10 @@ const runInteractiveSpike = async (): Promise<void> => {
     height: "100%",
     width: "46%",
   });
-  const providerBox = new BoxRenderable(renderer, {
+  const usageBox = new BoxRenderable(renderer, {
     border: true,
     borderColor: theme.color4,
     flexGrow: 1,
-    paddingX: 1,
     title: "usage",
     width: "100%",
   });
@@ -922,7 +932,6 @@ const runInteractiveSpike = async (): Promise<void> => {
     border: true,
     borderColor: theme.accent,
     height: 8,
-    paddingX: 1,
     title: "details",
     width: "100%",
   });
@@ -930,7 +939,6 @@ const runInteractiveSpike = async (): Promise<void> => {
     border: true,
     borderColor: theme.color2,
     flexGrow: 1,
-    paddingX: 1,
     title: "config",
     width: "100%",
   });
@@ -938,7 +946,6 @@ const runInteractiveSpike = async (): Promise<void> => {
     border: true,
     borderColor: theme.color1,
     height: 7,
-    paddingX: 1,
     title: "menu",
     width: "100%",
   });
@@ -950,16 +957,44 @@ const runInteractiveSpike = async (): Promise<void> => {
   const headerText = new TextRenderable(renderer, {
     content: "",
     fg: theme.foreground,
-    height: "100%",
+    height: 2,
     width: "100%",
     wrapMode: "word",
   });
-  const providerText = new TextRenderable(renderer, {
+  const providerTabs = new TabSelectRenderable(renderer, {
+    backgroundColor: theme.background,
+    focusedBackgroundColor: theme.background,
+    focusedTextColor: theme.foreground,
+    height: 2,
+    selectedBackgroundColor: theme.color5,
+    selectedTextColor: theme.background,
+    showDescription: false,
+    showUnderline: true,
+    tabWidth: 10,
+    textColor: theme.color8,
+    width: "100%",
+    wrapSelection: true,
+  });
+  const usageScroll = new ScrollBoxRenderable(renderer, {
+    backgroundColor: theme.background,
+    height: "100%",
+    paddingX: 1,
+    scrollY: true,
+    width: "100%",
+  });
+  const usageText = new TextRenderable(renderer, {
     content: "",
     fg: theme.foreground,
     height: "100%",
     width: "100%",
     wrapMode: "word",
+  });
+  const configScroll = new ScrollBoxRenderable(renderer, {
+    backgroundColor: theme.background,
+    height: "100%",
+    paddingX: 1,
+    scrollY: true,
+    width: "100%",
   });
   const configText = new TextRenderable(renderer, {
     content: "",
@@ -968,12 +1003,26 @@ const runInteractiveSpike = async (): Promise<void> => {
     width: "100%",
     wrapMode: "word",
   });
+  const detailsScroll = new ScrollBoxRenderable(renderer, {
+    backgroundColor: theme.background,
+    height: "100%",
+    paddingX: 1,
+    scrollY: true,
+    width: "100%",
+  });
   const detailsText = new TextRenderable(renderer, {
     content: "",
     fg: theme.foreground,
     height: "100%",
     width: "100%",
     wrapMode: "word",
+  });
+  const menuScroll = new ScrollBoxRenderable(renderer, {
+    backgroundColor: theme.background,
+    height: "100%",
+    paddingX: 1,
+    scrollY: true,
+    width: "100%",
   });
   const actionsText = new TextRenderable(renderer, {
     content: buildMenuText(state),
@@ -991,13 +1040,18 @@ const runInteractiveSpike = async (): Promise<void> => {
   });
 
   headerBox.add(headerText);
-  providerBox.add(providerText);
-  detailsBox.add(detailsText);
-  configBox.add(configText);
-  menuBox.add(actionsText);
+  headerBox.add(providerTabs);
+  usageScroll.add(usageText);
+  usageBox.add(usageScroll);
+  detailsScroll.add(detailsText);
+  detailsBox.add(detailsScroll);
+  configScroll.add(configText);
+  configBox.add(configScroll);
+  menuScroll.add(actionsText);
+  menuBox.add(menuScroll);
   footerBox.add(footerText);
 
-  leftColumn.add(providerBox);
+  leftColumn.add(usageBox);
   rightColumn.add(detailsBox);
   rightColumn.add(configBox);
   body.add(leftColumn);
@@ -1011,8 +1065,21 @@ const runInteractiveSpike = async (): Promise<void> => {
   const render = (): void => {
     const provider = state.providers[state.selectedProviderId];
 
-    headerText.content = buildHeaderText(state).join("\n");
-    providerText.content = buildProviderSummaryText(provider).join("\n");
+    headerText.content = buildHeaderText(state).slice(1).join("\n");
+    providerTabs.setOptions(
+      providerOrder.map((providerId) => ({
+        name: state.providers[providerId].enabled ? providerId : `${providerId} off`,
+        value: providerId,
+      })),
+    );
+
+    const providerIndex = providerOrder.indexOf(state.selectedProviderId);
+
+    if (providerTabs.getSelectedIndex() !== providerIndex) {
+      providerTabs.setSelectedIndex(providerIndex);
+    }
+
+    usageText.content = buildProviderSummaryText(provider).join("\n");
     detailsText.content = buildInfoText(provider);
     configText.content = `settings\n${buildSettingsText(provider)}\n\noptions\n${buildOptionsText(provider)}`;
     actionsText.content = buildMenuText(state);
@@ -1032,6 +1099,17 @@ const runInteractiveSpike = async (): Promise<void> => {
   };
 
   render();
+  providerTabs.focus();
+
+  providerTabs.on(
+    TabSelectRenderableEvents.SELECTION_CHANGED,
+    (_index: number, option?: { value?: unknown }) => {
+      if (option?.value === "codex" || option?.value === "claude" || option?.value === "gemini") {
+        setSelectedProvider(state, option.value);
+        render();
+      }
+    },
+  );
 
   renderer.keyInput.on("keypress", (key) => {
     const shouldQuit = handleKeyInput(key, state, theme, render);
