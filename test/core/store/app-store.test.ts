@@ -162,18 +162,12 @@ test("exposes the claude provider screen settings and recovery action", async ()
 
   expectProviderActions(resolvedClaudeView.actions, true, true);
   expect(resolvedClaudeView.settings.availableCookieSources).toEqual(["auto", "manual"]);
-  expect(resolvedClaudeView.settings.availablePromptPolicies).toEqual([
-    "never_prompt",
-    "only_on_user_action",
-    "always_allow_prompts",
-  ]);
   expect(resolvedClaudeView.settings.availableUsageSources).toEqual([
     "auto",
     "oauth",
     "web",
     "cli",
   ]);
-  expect(resolvedClaudeView.settings.showPromptPolicyControl).toBe(true);
   expect(resolvedClaudeView.settings.tokenAccounts).toEqual([]);
 });
 

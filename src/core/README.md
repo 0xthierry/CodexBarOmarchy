@@ -3,6 +3,9 @@
 This repository intentionally does not use barrel exports for the core layer.
 Headless consumers should import the concrete modules they need:
 
+- `@/runtime/app-runtime.ts`
+  - assembles the default headless runtime from config store, binary detection, provider adapters, and scheduler startup
+  - gives UI or non-UI hosts a single startup/shutdown seam
 - `@/core/store/app-store.ts`
   - owns in-memory app state
   - initializes config with first-run provider detection
@@ -21,11 +24,12 @@ Headless consumers should import the concrete modules they need:
 
 A headless runtime should:
 
-1. create a config store
-2. create provider adapters for the real `codex`, `claude`, and `gemini` integrations
-3. create the app store with those dependencies
-4. call `initialize()` once during startup
-5. call store mutations and provider actions directly as needed
+1. create `@/runtime/app-runtime.ts` for the default host wiring
+2. call `start()` once during startup
+3. use `appStore` for mutations, subscriptions, and provider actions
+4. call `stop()` during shutdown to stop the refresh scheduler
+
+If a host needs more control, it can still wire `config-store`, `provider-adapter`, and `app-store` directly.
 
 ## Current Scope Boundary
 

@@ -1,9 +1,5 @@
 import { createDefaultConfig } from "@/core/config/schema.ts";
-import {
-  claudeCookieSources,
-  claudePromptPolicies,
-  claudeUsageSources,
-} from "@/core/providers/claude.ts";
+import { claudeCookieSources, claudeUsageSources } from "@/core/providers/claude.ts";
 import { codexCookieSources, codexUsageSources } from "@/core/providers/codex.ts";
 import type { ProviderId } from "@/core/providers/provider-id.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
@@ -42,9 +38,7 @@ interface ClaudeProviderView extends ProviderViewBase<"claude"> {
   settings: {
     activeTokenAccountIndex: number;
     availableCookieSources: readonly string[];
-    availablePromptPolicies: readonly string[];
     availableUsageSources: readonly string[];
-    showPromptPolicyControl: boolean;
     tokenAccounts: OmarchyAgentBarConfig["providers"]["claude"]["tokenAccounts"];
   };
 }
@@ -115,9 +109,7 @@ const createClaudeProviderView = (
   settings: {
     activeTokenAccountIndex: config.providers.claude.activeTokenAccountIndex,
     availableCookieSources: claudeCookieSources,
-    availablePromptPolicies: claudePromptPolicies,
     availableUsageSources: claudeUsageSources,
-    showPromptPolicyControl: true,
     tokenAccounts: config.providers.claude.tokenAccounts,
   },
   status: providerRuntimeStates.claude.snapshot,

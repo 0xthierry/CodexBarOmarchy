@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConfigStore } from "../src/core/config/store.ts";
 import { createBinaryLocator } from "../src/core/detection/binary-locator.ts";
-import {
-  claudeCookieSources,
-  claudePromptPolicies,
-  claudeUsageSources,
-} from "../src/core/providers/claude.ts";
+import { claudeCookieSources, claudeUsageSources } from "../src/core/providers/claude.ts";
 import { codexCookieSources, codexUsageSources } from "../src/core/providers/codex.ts";
 import { createAppStore } from "../src/core/store/app-store.ts";
 import type { AppStoreState } from "../src/core/store/state.ts";
@@ -218,8 +214,7 @@ const assertClaudeProviderView = (providerView: Extract<ProviderView, { id: "cla
   assert(
     providerView.status.sourceLabel === "oauth" ||
       providerView.status.sourceLabel === "cli" ||
-      providerView.status.sourceLabel === "web" ||
-      providerView.status.sourceLabel === "local",
+      providerView.status.sourceLabel === "web",
     `claude: unexpected source "${providerView.status.sourceLabel ?? "null"}".`,
   );
   assertExactStringArray(
@@ -231,15 +226,6 @@ const assertClaudeProviderView = (providerView: Extract<ProviderView, { id: "cla
     providerView.settings.availableCookieSources,
     claudeCookieSources,
     "claude: unexpected cookie source options",
-  );
-  assertExactStringArray(
-    providerView.settings.availablePromptPolicies,
-    claudePromptPolicies,
-    "claude: unexpected prompt policy options",
-  );
-  assert(
-    providerView.settings.showPromptPolicyControl,
-    "claude: prompt policy control should be visible.",
   );
   assert(
     providerView.settings.activeTokenAccountIndex === providerView.config.activeTokenAccountIndex,
@@ -254,17 +240,17 @@ const assertClaudeProviderView = (providerView: Extract<ProviderView, { id: "cla
 
   const metricLabels = new Set(providerView.status.metrics.map((metric) => metric.label));
 
-  if (providerView.status.sourceLabel === "local") {
+  if (providerView.status.sourceLabel === "cli") {
     assert(
       providerView.status.accountEmail !== null,
-      "claude: local source should expose accountEmail.",
+      "claude: cli source should expose accountEmail.",
     );
     assert(
       metricLabels.has("Tokens") ||
         metricLabels.has("Messages") ||
         metricLabels.has("Sessions") ||
         metricLabels.has("Tools"),
-      "claude: local fallback did not expose local stats metrics.",
+      "claude: cli fallback did not expose local stats metrics.",
     );
 
     return;

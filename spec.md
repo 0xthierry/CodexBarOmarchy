@@ -270,17 +270,13 @@ The Claude provider screen must allow the user to:
   - remove selected account
   - open token file
   - reload token file
-- toggle `Avoid Keychain prompts (experimental)`
-- when applicable, choose `Keychain prompt policy`
-  - `Never prompt`
-  - `Only on user action`
-  - `Always allow prompts`
 - start/restart Claude login/auth flow
 - trigger recovery action equivalent to `Open Terminal` when OAuth repair requires it
 
 Linux note:
 
-- the macOS-specific Keychain terminology should be translated in the eventual Linux UI, but the underlying behavior choice still needs an equivalent configuration concept
+- Claude prompt-policy and secret-storage behavior are deferred for now.
+- Phase 1 should not expose prompt-policy controls in the canonical Linux config or provider screen until we decide the Linux secret-storage contract.
 
 #### How Claude source selection works
 
@@ -405,6 +401,8 @@ The UI must allow the user to edit provider config without manually opening the 
 
 Minimum persisted fields:
 
+The persisted JSON contract uses camelCase keys.
+
 ```json
 {
   "version": 1,
@@ -412,26 +410,24 @@ Minimum persisted fields:
     "codex": {
       "enabled": true,
       "source": "auto",
-      "extras_enabled": false,
-      "cookie_source": "off",
-      "cookie_header": null,
-      "historical_tracking_enabled": true
+      "extrasEnabled": false,
+      "cookieSource": "off",
+      "cookieHeader": null,
+      "historicalTrackingEnabled": true
     },
     "claude": {
       "enabled": true,
       "source": "auto",
-      "cookie_source": "auto",
-      "token_accounts": [],
-      "active_token_account_index": 0,
-      "oauth_prompt_free_credentials_enabled": false,
-      "oauth_prompt_policy": "only_on_user_action"
+      "cookieSource": "auto",
+      "tokenAccounts": [],
+      "activeTokenAccountIndex": 0
     },
     "gemini": {
       "enabled": true
     }
   },
-  "selected_provider": "codex",
-  "provider_order": ["codex", "claude", "gemini"]
+  "selectedProvider": "codex",
+  "providerOrder": ["codex", "claude", "gemini"]
 }
 ```
 
@@ -465,7 +461,6 @@ Notes:
   - recovery action equivalent to `Open Terminal` when OAuth repair is needed
 - Settings:
   - Usage source: `Auto`, `OAuth`, `Web`, `CLI`
-  - Keychain prompt policy: `Never prompt`, `Only on user action`, `Always allow prompts`
   - Claude cookies: `Automatic`, `Manual`
   - token accounts/session tokens:
     - choose active account
@@ -474,7 +469,7 @@ Notes:
     - open token file
     - reload token file
 - Options:
-  - Avoid Keychain prompts (experimental)
+  - none in Phase 1
 
 ### Gemini
 

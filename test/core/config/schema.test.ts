@@ -11,8 +11,6 @@ const expectedDefaultConfig: ReturnType<typeof createDefaultConfig> = {
       activeTokenAccountIndex: 0,
       cookieSource: "auto",
       enabled: true,
-      oauthPromptFreeCredentialsEnabled: false,
-      oauthPromptPolicy: "only_on_user_action",
       source: "auto",
       tokenAccounts: [],
     },
@@ -38,7 +36,6 @@ const normalizationInput = {
     claude: {
       activeTokenAccountIndex: 4,
       cookieSource: "manual",
-      oauthPromptPolicy: "always_allow_prompts",
       tokenAccounts: [
         {
           label: "primary",
@@ -73,8 +70,6 @@ const expectedNormalizedConfig: ReturnType<typeof createDefaultConfig> = {
       activeTokenAccountIndex: 0,
       cookieSource: "manual",
       enabled: true,
-      oauthPromptFreeCredentialsEnabled: false,
-      oauthPromptPolicy: "always_allow_prompts",
       source: "auto",
       tokenAccounts: [
         {

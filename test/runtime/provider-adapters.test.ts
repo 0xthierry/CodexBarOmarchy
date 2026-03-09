@@ -480,6 +480,61 @@ test("codex falls back to the app-server CLI path when oauth is unavailable", as
   ).toEqual(["initialize", "initialized", "account/read", "account/rateLimits/read"]);
 });
 
+test("codex auto falls back to the CLI path when oauth credentials are invalid", async () => {
+  const fixture = await createHostFixture({
+    lineSessions: {
+      "codex -s read-only -a never app-server": [
+        JSON.stringify({
+          id: 1,
+          result: {
+            userAgent: "codex-cli/0.111.0",
+          },
+        }),
+        JSON.stringify({
+          id: 2,
+          result: {
+            account: {
+              email: "codex@example.com",
+              planType: "pro",
+            },
+          },
+        }),
+        JSON.stringify({
+          id: 3,
+          result: {
+            rateLimits: {
+              primary: {
+                resetsAt: 1_762_934_400,
+                usedPercent: 63,
+              },
+            },
+          },
+        }),
+      ],
+    },
+    which: {
+      codex: "/usr/bin/codex",
+    },
+  });
+  const authPath = join(fixture.homeDirectory, ".codex", "auth.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  await writeJson(authPath, {
+    tokens: {
+      refresh_token: "codex-refresh-token",
+    },
+  });
+
+  const refreshResult = await providerAdapters.codex.refresh({
+    config: createConfig(),
+    providerConfig: createConfig().providers.codex,
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
+  expect(refreshResult.snapshot?.accountEmail).toBe("codex@example.com");
+});
+
 test("codex returns a refresh error when the usage request throws", async () => {
   const fixture = await createHostFixture();
   const authPath = join(fixture.homeDirectory, ".codex", "auth.json");
@@ -906,6 +961,7 @@ test("claude auto prefers the cli fallback before the web session fallback", asy
     providerConfig: {
       ...config.providers.claude,
       activeTokenAccountIndex: 0,
+      cookieSource: "manual",
       tokenAccounts: [
         {
           label: "manual",
@@ -1003,6 +1059,7 @@ test("claude uses the manual session token for the web fallback path", async () 
     config,
     providerConfig: {
       ...config.providers.claude,
+      cookieSource: "manual",
       source: "web",
       tokenAccounts: [
         {
@@ -1040,6 +1097,79 @@ test("claude uses the manual session token for the web fallback path", async () 
       url: "https://claude.ai/api/organizations/org_123/usage",
     },
   ]);
+});
+
+test("claude web automatic mode ignores manual token accounts and uses the token file", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture();
+  const sessionPath = join(fixture.homeDirectory, ".claude", "session.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  await writeJson(sessionPath, {
+    account: {
+      email_address: "auto@example.com",
+    },
+    plan: "Claude Team",
+    usage: {
+      five_hour: {
+        resets_at: "soon",
+        utilization: 19,
+      },
+    },
+  });
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: {
+      ...config.providers.claude,
+      cookieSource: "auto",
+      source: "web",
+      tokenAccounts: [
+        {
+          label: "manual",
+          token: "sk-ant-session-token",
+        },
+      ],
+    },
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("web");
+  expect(refreshResult.snapshot?.accountEmail).toBe("auto@example.com");
+  expect(fixture.httpRequests).toEqual([]);
+});
+
+test("claude web manual mode does not fall back to the token file", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture();
+  const sessionPath = join(fixture.homeDirectory, ".claude", "session.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  await writeJson(sessionPath, {
+    account: {
+      email_address: "auto@example.com",
+    },
+    plan: "Claude Team",
+    usage: {
+      five_hour: {
+        resets_at: "soon",
+        utilization: 19,
+      },
+    },
+  });
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: {
+      ...config.providers.claude,
+      cookieSource: "manual",
+      source: "web",
+    },
+  });
+
+  expect(refreshResult.status).toBe("error");
+  expect(refreshResult.message).toBe("Claude credentials, CLI, or token file are unavailable.");
+  expect(fixture.httpRequests).toEqual([]);
 });
 
 test("claude auto falls back to local stats when oauth usage is rate limited and slash status is unavailable", async () => {
@@ -1140,7 +1270,7 @@ test("claude auto falls back to local stats when oauth usage is rate limited and
   });
 
   expect(refreshResult.status).toBe("success");
-  expect(refreshResult.snapshot?.sourceLabel).toBe("local");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
   expect(refreshResult.snapshot?.accountEmail).toBe("local@example.com");
   expect(refreshResult.snapshot?.planLabel).toBe("max");
   expect(refreshResult.snapshot?.version).toBe("2.1.71");

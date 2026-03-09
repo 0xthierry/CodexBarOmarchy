@@ -3,15 +3,9 @@ import { isRecord, readArray, readBoolean, readInteger, readStringEnum } from ".
 const defaultTokenAccountIndex = 0;
 
 const claudeCookieSources = ["auto", "manual"] as const;
-const claudePromptPolicies = [
-  "never_prompt",
-  "only_on_user_action",
-  "always_allow_prompts",
-] as const;
 const claudeUsageSources = ["auto", "oauth", "web", "cli"] as const;
 
 type ClaudeCookieSource = (typeof claudeCookieSources)[number];
-type ClaudePromptPolicy = (typeof claudePromptPolicies)[number];
 type ClaudeUsageSource = (typeof claudeUsageSources)[number];
 
 interface ClaudeTokenAccount {
@@ -23,8 +17,6 @@ interface ClaudeProviderConfig {
   enabled: boolean;
   activeTokenAccountIndex: number;
   cookieSource: ClaudeCookieSource;
-  oauthPromptFreeCredentialsEnabled: boolean;
-  oauthPromptPolicy: ClaudePromptPolicy;
   source: ClaudeUsageSource;
   tokenAccounts: ClaudeTokenAccount[];
 }
@@ -61,8 +53,6 @@ const createDefaultClaudeProviderConfig = (): ClaudeProviderConfig => ({
   activeTokenAccountIndex: defaultTokenAccountIndex,
   cookieSource: "auto",
   enabled: true,
-  oauthPromptFreeCredentialsEnabled: false,
-  oauthPromptPolicy: "only_on_user_action",
   source: "auto",
   tokenAccounts: [],
 });
@@ -89,16 +79,6 @@ const normalizeClaudeProviderConfig = (value: unknown): ClaudeProviderConfig => 
       key: "cookieSource",
     }),
     enabled: readBoolean(value, "enabled", defaults.enabled),
-    oauthPromptFreeCredentialsEnabled: readBoolean(
-      value,
-      "oauthPromptFreeCredentialsEnabled",
-      defaults.oauthPromptFreeCredentialsEnabled,
-    ),
-    oauthPromptPolicy: readStringEnum(value, {
-      allowedValues: claudePromptPolicies,
-      fallback: defaults.oauthPromptPolicy,
-      key: "oauthPromptPolicy",
-    }),
     source: readStringEnum(value, {
       allowedValues: claudeUsageSources,
       fallback: defaults.source,
@@ -110,12 +90,10 @@ const normalizeClaudeProviderConfig = (value: unknown): ClaudeProviderConfig => 
 
 export {
   claudeCookieSources,
-  claudePromptPolicies,
   claudeUsageSources,
   createDefaultClaudeProviderConfig,
   normalizeClaudeProviderConfig,
   type ClaudeCookieSource,
-  type ClaudePromptPolicy,
   type ClaudeProviderConfig,
   type ClaudeTokenAccount,
   type ClaudeUsageSource,

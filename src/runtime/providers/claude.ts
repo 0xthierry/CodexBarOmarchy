@@ -510,6 +510,7 @@ const createClaudeOAuthUsageResponse = (value: unknown): ClaudeOAuthUsageRespons
 
 const getActiveClaudeSessionToken = (providerConfig: {
   activeTokenAccountIndex: number;
+  cookieSource: "auto" | "manual";
   tokenAccounts: {
     label: string;
     token: string;
@@ -523,6 +524,24 @@ const getActiveClaudeSessionToken = (providerConfig: {
   }
 
   return explicitNull;
+};
+
+const hasClaudeWebSession = async (
+  host: RuntimeHost,
+  providerConfig: {
+    activeTokenAccountIndex: number;
+    cookieSource: "auto" | "manual";
+    tokenAccounts: {
+      label: string;
+      token: string;
+    }[];
+  },
+): Promise<boolean> => {
+  if (providerConfig.cookieSource === "manual") {
+    return getActiveClaudeSessionToken(providerConfig) !== null;
+  }
+
+  return (await resolveClaudeTokenFilePath(host)) !== null;
 };
 
 const fetchClaudeWebUsage = async (
@@ -745,7 +764,7 @@ const parseClaudeLocalSnapshot = (
       accountEmail: authStatus.email ?? fallbackAccountEmail,
       metrics,
       planLabel: authStatus.subscriptionType,
-      sourceLabel: "local",
+      sourceLabel: "cli",
       updatedAt,
       version: explicitNull,
     }),
@@ -916,6 +935,7 @@ const resolveClaudeSource = async (
   selectedSource: "auto" | "cli" | "oauth" | "web",
   providerConfig: {
     activeTokenAccountIndex: number;
+    cookieSource: "auto" | "manual";
     tokenAccounts: {
       label: string;
       token: string;
@@ -924,9 +944,7 @@ const resolveClaudeSource = async (
 ): Promise<ClaudeResolvedSource | null> => {
   const hasOauth = await host.fileSystem.fileExists(resolveClaudeOauthPath(host));
   const hasCli = (await host.commands.which("claude")) !== null;
-  const hasWeb =
-    getActiveClaudeSessionToken(providerConfig) !== null ||
-    (await resolveClaudeTokenFilePath(host)) !== null;
+  const hasWeb = await hasClaudeWebSession(host, providerConfig);
 
   if (selectedSource === "oauth") {
     return hasOauth ? "oauth" : explicitNull;
@@ -1020,15 +1038,20 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
 
     const refreshViaWeb = async (): Promise<ProviderRefreshActionResult<"claude">> => {
       const updatedAt = host.now().toISOString();
-      const manualSessionToken = getActiveClaudeSessionToken(providerConfig);
+      const version = await resolveClaudeVersion(host);
 
-      if (manualSessionToken !== null) {
+      if (providerConfig.cookieSource === "manual") {
+        const manualSessionToken = getActiveClaudeSessionToken(providerConfig);
+
+        if (manualSessionToken === null) {
+          return createRefreshError("claude", "Claude manual session token is unavailable.");
+        }
+
         try {
           const webResult = parseClaudeWebSnapshot(
             await fetchClaudeWebUsage(host, manualSessionToken),
             updatedAt,
           );
-          const version = await resolveClaudeVersion(host);
 
           if (webResult.snapshot !== null) {
             webResult.snapshot = {
@@ -1060,7 +1083,6 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       }
 
       const webResult = parseClaudeWebSnapshot(tokenPayload.value, updatedAt);
-      const version = await resolveClaudeVersion(host);
 
       if (webResult.snapshot !== null) {
         webResult.snapshot = {

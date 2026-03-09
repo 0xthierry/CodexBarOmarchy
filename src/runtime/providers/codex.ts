@@ -801,7 +801,17 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
     }
 
     if (resolvedSource === "oauth") {
-      return fetchCodexOAuthSnapshot(host);
+      const oauthResult = await fetchCodexOAuthSnapshot(host);
+
+      if (providerConfig.source !== "auto" || oauthResult.status !== "error") {
+        return oauthResult;
+      }
+
+      if ((await host.commands.which("codex")) === null) {
+        return oauthResult;
+      }
+
+      return fetchCodexCliSnapshot(host);
     }
 
     return fetchCodexCliSnapshot(host);
