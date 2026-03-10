@@ -9,6 +9,7 @@ import type {
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeCommandResult, RuntimeHost } from "@/runtime/host.ts";
 import {
+  createProviderCostSnapshot,
   createRefreshError,
   createRefreshSuccess,
   createSnapshot,
@@ -25,6 +26,7 @@ import {
   readString,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
+import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
 import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
 
 const claudeOAuthRefreshEndpoint = "https://platform.claude.com/v1/oauth/token";
@@ -36,6 +38,7 @@ const claudeStatsCacheFileName = "stats-cache.json";
 const claudeStateFileName = ".claude.json";
 const fallbackClaudeCodeVersion = "2.1.0";
 const oauthUsageBetaHeader = "oauth-2025-04-20";
+const claudeStatusPageUrl = "https://status.claude.com";
 
 type ClaudeResolvedSource = "cli" | "oauth" | "web";
 
@@ -57,6 +60,12 @@ interface ClaudeOAuthUsageResponse {
   fiveHour: ClaudeOAuthUsageWindow | null;
   sevenDay: ClaudeOAuthUsageWindow | null;
   sevenDaySonnet: ClaudeOAuthUsageWindow | null;
+}
+
+interface ClaudeExtraUsageSnapshot {
+  currencyCode: string;
+  limit: number;
+  used: number;
 }
 
 interface ClaudeWebUsageResponse {
@@ -209,6 +218,44 @@ const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMe
   }
 
   return metrics;
+};
+
+const normalizeClaudeExtraUsageAmounts = (
+  usedCredits: number,
+  monthlyLimit: number,
+): { limit: number; used: number } => ({
+  // Claude OAuth extra-usage amounts are returned in minor currency units.
+  limit: monthlyLimit / 100,
+  used: usedCredits / 100,
+});
+
+const parseClaudeExtraUsage = (
+  extraUsageRecord: Record<string, unknown> | null,
+): ClaudeExtraUsageSnapshot | null => {
+  if (extraUsageRecord === null) {
+    return explicitNull;
+  }
+
+  const isEnabled = readBoolean(extraUsageRecord, "is_enabled");
+
+  if (isEnabled !== true) {
+    return explicitNull;
+  }
+
+  const monthlyLimit = readFiniteNumber(extraUsageRecord, "monthly_limit");
+  const usedCredits = readFiniteNumber(extraUsageRecord, "used_credits");
+
+  if (monthlyLimit === null || usedCredits === null) {
+    return explicitNull;
+  }
+
+  const normalizedAmounts = normalizeClaudeExtraUsageAmounts(usedCredits, monthlyLimit);
+
+  return {
+    currencyCode: readString(extraUsageRecord, "currency") ?? "USD",
+    limit: normalizedAmounts.limit,
+    used: normalizedAmounts.used,
+  };
 };
 
 const collectClaudeLocalMetrics = (statsRecord: ClaudeStatsRecord): ProviderMetricInput[] => {
@@ -626,6 +673,7 @@ const parseClaudeOAuthSnapshot = (
 ): ProviderRefreshActionResult<"claude"> => {
   const metrics = collectClaudeMetrics(oauthPayload);
   const oauthRecord = readNestedRecord(rawCredentials, "claudeAiOauth");
+  const extraUsage = parseClaudeExtraUsage(oauthPayload.extraUsage);
 
   if (metrics.length === 0) {
     return createRefreshError("claude", "Claude OAuth data did not include usage metrics.");
@@ -642,6 +690,16 @@ const parseClaudeOAuthSnapshot = (
         fallbackAccountEmail,
       metrics,
       planLabel: credentials.subscriptionType,
+      providerCost:
+        extraUsage === null
+          ? explicitNull
+          : createProviderCostSnapshot({
+              currencyCode: extraUsage.currencyCode,
+              limit: extraUsage.limit,
+              periodLabel: "Monthly",
+              updatedAt,
+              used: extraUsage.used,
+            }),
       sourceLabel: "oauth",
       updatedAt,
       version,
@@ -1005,6 +1063,25 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       );
     }
 
+    const attachServiceStatus = async (
+      result: ProviderRefreshActionResult<"claude">,
+    ): Promise<ProviderRefreshActionResult<"claude">> => {
+      if (result.snapshot === null) {
+        return result;
+      }
+
+      return {
+        ...result,
+        snapshot: {
+          ...result.snapshot,
+          serviceStatus: await tryFetchProviderServiceStatus(host, {
+            baseUrl: claudeStatusPageUrl,
+            kind: "statuspage",
+          }),
+        },
+      };
+    };
+
     const refreshViaCli = async (): Promise<ProviderRefreshActionResult<"claude">> => {
       const commandResult = await host.commands.run("claude", [], {
         input: claudeStatusInput,
@@ -1098,31 +1175,31 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       const oauthResult = await fetchClaudeOAuthSnapshot(host);
 
       if (oauthResult.status !== "error" || providerConfig.source !== "auto") {
-        return oauthResult;
+        return attachServiceStatus(oauthResult);
       }
 
       if ((await host.commands.which("claude")) !== null) {
         const cliResult = await refreshViaCli();
 
         if (cliResult.status !== "error") {
-          return cliResult;
+          return attachServiceStatus(cliResult);
         }
       }
 
-      return refreshViaWeb();
+      return attachServiceStatus(await refreshViaWeb());
     }
 
     if (resolvedSource === "cli") {
       const cliResult = await refreshViaCli();
 
       if (cliResult.status !== "error" || providerConfig.source !== "auto") {
-        return cliResult;
+        return attachServiceStatus(cliResult);
       }
 
-      return refreshViaWeb();
+      return attachServiceStatus(await refreshViaWeb());
     }
 
-    return refreshViaWeb();
+    return attachServiceStatus(await refreshViaWeb());
   },
   reloadTokenFile: async (): Promise<
     ReturnType<typeof createErrorProviderActionResult<"claude", "reloadTokenFile">>

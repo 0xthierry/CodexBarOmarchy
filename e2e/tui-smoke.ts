@@ -55,24 +55,50 @@ const createSmokeProviderAdapters = () => ({
       createRefreshActionResult(
         createSuccessfulProviderActionResult("claude", "refresh", "Claude refreshed."),
         {
-          accountEmail: "claude@example.com",
+          identity: {
+            accountEmail: "claude@example.com",
+            planLabel: "Max",
+          },
           latestError: null,
-          metrics: [
-            {
-              detail: null,
-              label: "Session",
-              value: "72%",
-            },
-            {
-              detail: null,
-              label: "Sonnet",
-              value: "41%",
-            },
-          ],
-          planLabel: "Max",
+          serviceStatus: null,
           sourceLabel: "web",
           state: "ready",
           updatedAt: "2026-03-10T12:34:56.000Z",
+          usage: {
+            additional: [],
+            balances: {
+              credits: null,
+            },
+            displayMetrics: [
+              {
+                detail: null,
+                label: "Session",
+                value: "72%",
+              },
+              {
+                detail: null,
+                label: "Sonnet",
+                value: "41%",
+              },
+            ],
+            providerCost: null,
+            quotaBuckets: [],
+            windows: {
+              flash: null,
+              pro: null,
+              session: {
+                detail: null,
+                label: "Session",
+                value: "72%",
+              },
+              sonnet: {
+                detail: null,
+                label: "Sonnet",
+                value: "41%",
+              },
+              weekly: null,
+            },
+          },
           version: "1.0.0",
         },
       ),
@@ -88,24 +114,50 @@ const createSmokeProviderAdapters = () => ({
       createRefreshActionResult(
         createSuccessfulProviderActionResult("codex", "refresh", "Codex refreshed."),
         {
-          accountEmail: "codex@example.com",
+          identity: {
+            accountEmail: "codex@example.com",
+            planLabel: "OAuth",
+          },
           latestError: null,
-          metrics: [
-            {
-              detail: null,
-              label: "Session",
-              value: "58%",
-            },
-            {
-              detail: null,
-              label: "Weekly",
-              value: "81%",
-            },
-          ],
-          planLabel: "OAuth",
+          serviceStatus: null,
           sourceLabel: "oauth",
           state: "ready",
           updatedAt: "2026-03-10T12:33:00.000Z",
+          usage: {
+            additional: [],
+            balances: {
+              credits: null,
+            },
+            displayMetrics: [
+              {
+                detail: null,
+                label: "Session",
+                value: "58%",
+              },
+              {
+                detail: null,
+                label: "Weekly",
+                value: "81%",
+              },
+            ],
+            providerCost: null,
+            quotaBuckets: [],
+            windows: {
+              flash: null,
+              pro: null,
+              session: {
+                detail: null,
+                label: "Session",
+                value: "58%",
+              },
+              sonnet: null,
+              weekly: {
+                detail: null,
+                label: "Weekly",
+                value: "81%",
+              },
+            },
+          },
           version: "1.2.3",
         },
       ),
@@ -117,19 +169,47 @@ const createSmokeProviderAdapters = () => ({
       createRefreshActionResult(
         createSuccessfulProviderActionResult("gemini", "refresh", "Gemini refreshed."),
         {
-          accountEmail: "gemini@example.com",
+          identity: {
+            accountEmail: "gemini@example.com",
+            planLabel: "API",
+          },
           latestError: null,
-          metrics: [
-            {
-              detail: null,
-              label: "Flash",
-              value: "34%",
-            },
-          ],
-          planLabel: "API",
+          serviceStatus: null,
           sourceLabel: "api",
           state: "ready",
           updatedAt: "2026-03-10T12:35:00.000Z",
+          usage: {
+            additional: [],
+            balances: {
+              credits: null,
+            },
+            displayMetrics: [
+              {
+                detail: null,
+                label: "Flash",
+                value: "34%",
+              },
+            ],
+            providerCost: null,
+            quotaBuckets: [
+              {
+                modelId: "gemini-2.5-flash",
+                remainingFraction: 0.66,
+                resetTime: "2026-03-10T18:00:00.000Z",
+              },
+            ],
+            windows: {
+              flash: {
+                detail: null,
+                label: "Flash",
+                value: "34%",
+              },
+              pro: null,
+              session: null,
+              sonnet: null,
+              weekly: null,
+            },
+          },
           version: "0.29.7",
         },
       ),

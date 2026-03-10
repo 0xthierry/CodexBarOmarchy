@@ -20,6 +20,7 @@ import {
   readString,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
+import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
 
 const codexAppServerArgs = ["-s", "read-only", "-a", "never", "app-server"] as const;
 const codexDefaultBaseUrl = "https://chatgpt.com/backend-api";
@@ -27,6 +28,7 @@ const codexRefreshEndpoint = "https://auth.openai.com/oauth/token";
 const codexRequestTimeoutMs = 15_000;
 const codexTrustedUsageHosts = new Set(["chat.openai.com", "chatgpt.com"]);
 const codexUsageApiPath = "/wham/usage";
+const codexStatusPageUrl = "https://status.openai.com";
 
 type CodexResolvedSource = "cli" | "oauth";
 
@@ -656,9 +658,9 @@ const parseCodexCliSnapshot = (
   const creditBalance =
     typeof rateLimits?.credits?.balance === "number"
       ? rateLimits.credits.balance
-      : (typeof rateLimits?.credits?.balance === "string"
+      : typeof rateLimits?.credits?.balance === "string"
         ? Number(rateLimits.credits.balance)
-        : NaN);
+        : NaN;
 
   if (typeof primaryPercent === "number") {
     metrics.push({
@@ -800,21 +802,40 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
       return createRefreshError("codex", "Codex credentials or CLI are unavailable.");
     }
 
+    const attachServiceStatus = async (
+      result: ProviderRefreshActionResult<"codex">,
+    ): Promise<ProviderRefreshActionResult<"codex">> => {
+      if (result.snapshot === null) {
+        return result;
+      }
+
+      return {
+        ...result,
+        snapshot: {
+          ...result.snapshot,
+          serviceStatus: await tryFetchProviderServiceStatus(host, {
+            baseUrl: codexStatusPageUrl,
+            kind: "statuspage",
+          }),
+        },
+      };
+    };
+
     if (resolvedSource === "oauth") {
       const oauthResult = await fetchCodexOAuthSnapshot(host);
 
       if (providerConfig.source !== "auto" || oauthResult.status !== "error") {
-        return oauthResult;
+        return attachServiceStatus(oauthResult);
       }
 
       if ((await host.commands.which("codex")) === null) {
-        return oauthResult;
+        return attachServiceStatus(oauthResult);
       }
 
-      return fetchCodexCliSnapshot(host);
+      return attachServiceStatus(await fetchCodexCliSnapshot(host));
     }
 
-    return fetchCodexCliSnapshot(host);
+    return attachServiceStatus(await fetchCodexCliSnapshot(host));
   },
 });
 

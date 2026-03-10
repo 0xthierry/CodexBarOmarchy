@@ -6,6 +6,7 @@ import type {
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
 import {
+  createProviderQuotaBucketSnapshot,
   createRefreshError,
   createRefreshSuccess,
   createSnapshot,
@@ -21,12 +22,14 @@ import {
   readString,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
+import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
 
 const geminiLoadCodeAssistEndpoint =
   "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
 const geminiProjectListEndpoint = "https://cloudresourcemanager.googleapis.com/v1/projects";
 const geminiQuotaEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
 const geminiRefreshEndpoint = "https://oauth2.googleapis.com/token";
+const geminiStatusWorkspaceProductId = "npdyhgECDJ6tB66MxXyo";
 const geminiTimeoutMs = 15_000;
 const oauthClientFileCandidates = [
   "../gemini-cli-core/dist/src/code_assist/oauth2.js",
@@ -48,8 +51,8 @@ interface GeminiOAuthCredentials {
 }
 
 interface GeminiQuotaBucket {
-  modelId: string | null;
-  remainingFraction: number | null;
+  modelId: string;
+  remainingFraction: number;
   resetTime: string | null;
 }
 
@@ -226,9 +229,16 @@ const parseGeminiQuotaBuckets = (quotaPayload: unknown): GeminiQuotaBucket[] => 
       continue;
     }
 
+    const modelId = readString(bucket, "modelId");
+    const remainingFraction = readFiniteNumber(bucket, "remainingFraction");
+
+    if (modelId === null || remainingFraction === null) {
+      continue;
+    }
+
     buckets.push({
-      modelId: readString(bucket, "modelId"),
-      remainingFraction: readFiniteNumber(bucket, "remainingFraction"),
+      modelId,
+      remainingFraction,
       resetTime: readString(bucket, "resetTime"),
     });
   }
@@ -378,13 +388,10 @@ const parseGeminiQuotaSnapshot = (
   updatedAt: string,
   version: string | null,
 ): ProviderRefreshActionResult<"gemini"> => {
+  const quotaBuckets = parseGeminiQuotaBuckets(quotaPayload);
   const metricsByLabel = new Map<string, { detail: string | null; value: number }>();
 
-  for (const bucket of parseGeminiQuotaBuckets(quotaPayload)) {
-    if (bucket.modelId === null || bucket.remainingFraction === null) {
-      continue;
-    }
-
+  for (const bucket of quotaBuckets) {
     const usedFraction = convertRemainingFractionToUsedFraction(bucket.remainingFraction);
 
     if (bucket.modelId.toLowerCase().includes("pro")) {
@@ -441,6 +448,13 @@ const parseGeminiQuotaSnapshot = (
         readJwtEmail(credentials.rawRecord, "idToken"),
       metrics,
       planLabel,
+      quotaBuckets: quotaBuckets.map((bucket) =>
+        createProviderQuotaBucketSnapshot({
+          modelId: bucket.modelId,
+          remainingFraction: bucket.remainingFraction,
+          resetTime: bucket.resetTime,
+        }),
+      ),
       sourceLabel: "api",
       updatedAt,
       version: readString(isRecord(quotaPayload) ? quotaPayload : {}, "version") ?? version,
@@ -613,7 +627,22 @@ const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter =
       return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");
     }
 
-    return fetchGeminiApiSnapshot(host);
+    const result = await fetchGeminiApiSnapshot(host);
+
+    if (result.snapshot === null) {
+      return result;
+    }
+
+    return {
+      ...result,
+      snapshot: {
+        ...result.snapshot,
+        serviceStatus: await tryFetchProviderServiceStatus(host, {
+          kind: "workspace",
+          productId: geminiStatusWorkspaceProductId,
+        }),
+      },
+    };
   },
 });
 

@@ -1,4 +1,5 @@
 import type { AppStoreState, ProviderView } from "@/core/store/state.ts";
+import { getProviderSnapshotMetrics } from "@/core/store/runtime-state.ts";
 
 interface ClaudeStatsSettings {
   activeTokenAccountIndex: number;
@@ -15,18 +16,21 @@ interface GeminiStatsSettings {}
 type StatsProviderSettings = ClaudeStatsSettings | CodexStatsSettings | GeminiStatsSettings;
 
 interface StatsProviderSnapshot {
-  accountEmail: string | null;
   enabled: boolean;
   id: ProviderView["id"];
+  identity: ProviderView["status"]["identity"];
   latestError: string | null;
-  metrics: ProviderView["status"]["metrics"];
-  planLabel: string | null;
+  metrics: readonly ProviderView["status"]["usage"]["displayMetrics"][number][];
+  serviceStatus: ProviderView["status"]["serviceStatus"];
   selected: boolean;
   settings: StatsProviderSettings;
   sourceLabel: string | null;
   state: ProviderView["status"]["state"];
   updatedAt: string | null;
+  usage: ProviderView["status"]["usage"];
   version: string | null;
+  accountEmail: string | null;
+  planLabel: string | null;
 }
 
 interface StatsSnapshot {
@@ -57,17 +61,20 @@ const toStatsProviderSettings = (providerView: ProviderView): StatsProviderSetti
 };
 
 const toStatsProviderSnapshot = (providerView: ProviderView): StatsProviderSnapshot => ({
-  accountEmail: providerView.status.accountEmail,
+  accountEmail: providerView.status.identity.accountEmail,
   enabled: providerView.enabled,
   id: providerView.id,
+  identity: providerView.status.identity,
   latestError: providerView.status.latestError,
-  metrics: providerView.status.metrics,
-  planLabel: providerView.status.planLabel,
+  metrics: getProviderSnapshotMetrics(providerView.status),
+  planLabel: providerView.status.identity.planLabel,
   selected: providerView.selected,
+  serviceStatus: providerView.status.serviceStatus,
   settings: toStatsProviderSettings(providerView),
   sourceLabel: providerView.status.sourceLabel,
   state: providerView.status.state,
   updatedAt: providerView.status.updatedAt,
+  usage: providerView.status.usage,
   version: providerView.status.version,
 });
 

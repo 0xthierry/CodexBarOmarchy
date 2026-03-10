@@ -5,8 +5,14 @@ import {
 import { createRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
+import type {
+  ProviderCostSnapshot,
+  ProviderMetricView,
+  ProviderQuotaBucketSnapshot,
+  ProviderRuntimeSnapshot,
+  ProviderUsageSnapshot,
+} from "@/core/store/runtime-state.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
-import type { ProviderRuntimeSnapshot } from "@/core/store/runtime-state.ts";
 
 type ProviderId = "claude" | "codex" | "gemini";
 
@@ -156,28 +162,122 @@ const readFiniteNumber = (record: Record<string, unknown>, key: string): number 
 const formatPercent = (value: number): string => `${Math.round(value)}%`;
 const formatFractionPercent = (value: number): string => formatPercent(value * 100);
 
-const createMetric = (input: ProviderMetricInput): ProviderRuntimeSnapshot["metrics"][number] => ({
+const createMetric = (input: ProviderMetricInput): ProviderMetricView => ({
   detail: input.detail ?? explicitNull,
   label: input.label,
   value: input.value,
 });
+
+const createProviderCostSnapshot = (input: {
+  currencyCode: string;
+  limit: number;
+  periodLabel?: string | null;
+  resetsAt?: string | null;
+  updatedAt?: string | null;
+  used: number;
+}): ProviderCostSnapshot => ({
+  currencyCode: input.currencyCode,
+  limit: input.limit,
+  periodLabel: input.periodLabel ?? explicitNull,
+  resetsAt: input.resetsAt ?? explicitNull,
+  updatedAt: input.updatedAt ?? explicitNull,
+  used: input.used,
+});
+
+const createProviderQuotaBucketSnapshot = (input: {
+  modelId: string;
+  remainingFraction: number;
+  resetTime?: string | null;
+}): ProviderQuotaBucketSnapshot => ({
+  modelId: input.modelId,
+  remainingFraction: input.remainingFraction,
+  resetTime: input.resetTime ?? explicitNull,
+});
+
+const createUsageSnapshot = (
+  metrics: ProviderMetricInput[] = [],
+  providerCost: ProviderCostSnapshot | null = explicitNull,
+  quotaBuckets: ProviderQuotaBucketSnapshot[] = [],
+): ProviderUsageSnapshot => {
+  const usage: ProviderUsageSnapshot = {
+    additional: [],
+    balances: {
+      credits: explicitNull,
+    },
+    displayMetrics: metrics.map((metric) => createMetric(metric)),
+    providerCost,
+    quotaBuckets,
+    windows: {
+      flash: explicitNull,
+      pro: explicitNull,
+      session: explicitNull,
+      sonnet: explicitNull,
+      weekly: explicitNull,
+    },
+  };
+
+  for (const metric of usage.displayMetrics) {
+    if (metric.label === "Session") {
+      usage.windows.session = metric;
+      continue;
+    }
+
+    if (metric.label === "Weekly") {
+      usage.windows.weekly = metric;
+      continue;
+    }
+
+    if (metric.label === "Sonnet") {
+      usage.windows.sonnet = metric;
+      continue;
+    }
+
+    if (metric.label === "Pro") {
+      usage.windows.pro = metric;
+      continue;
+    }
+
+    if (metric.label === "Flash") {
+      usage.windows.flash = metric;
+      continue;
+    }
+
+    if (metric.label === "Credits") {
+      usage.balances.credits = metric;
+      continue;
+    }
+
+    usage.additional.push(metric);
+  }
+
+  return usage;
+};
 
 const createSnapshot = (input: {
   accountEmail?: string | null;
   latestError?: string | null;
   metrics?: ProviderMetricInput[];
   planLabel?: string | null;
+  providerCost?: ProviderCostSnapshot | null;
+  quotaBuckets?: ProviderQuotaBucketSnapshot[];
   sourceLabel: string;
   updatedAt?: string | null;
   version?: string | null;
 }): ProviderRuntimeSnapshot => ({
-  accountEmail: input.accountEmail ?? explicitNull,
+  identity: {
+    accountEmail: input.accountEmail ?? explicitNull,
+    planLabel: input.planLabel ?? explicitNull,
+  },
   latestError: input.latestError ?? explicitNull,
-  metrics: input.metrics?.map((metric) => createMetric(metric)) ?? [],
-  planLabel: input.planLabel ?? explicitNull,
+  serviceStatus: explicitNull,
   sourceLabel: input.sourceLabel,
   state: "ready",
   updatedAt: input.updatedAt ?? new Date().toISOString(),
+  usage: createUsageSnapshot(
+    input.metrics,
+    input.providerCost ?? explicitNull,
+    input.quotaBuckets ?? [],
+  ),
   version: input.version ?? explicitNull,
 });
 
@@ -272,7 +372,10 @@ const readCommandVersion = async (
 export {
   createRefreshError,
   createRefreshSuccess,
+  createProviderCostSnapshot,
+  createProviderQuotaBucketSnapshot,
   createSnapshot,
+  createUsageSnapshot,
   formatFractionPercent,
   formatPercent,
   isRecord,

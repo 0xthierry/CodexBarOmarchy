@@ -10,24 +10,50 @@ test("renders a deterministic plain-text snapshot for non-tty output", () => {
   const runtimeStateMap = createDefaultProviderRuntimeStateMap();
 
   runtimeStateMap.codex.snapshot = {
-    accountEmail: "codex@example.com",
+    identity: {
+      accountEmail: "codex@example.com",
+      planLabel: "OAuth",
+    },
     latestError: null,
-    metrics: [
-      {
-        detail: null,
-        label: "Session",
-        value: "58%",
-      },
-      {
-        detail: null,
-        label: "Weekly",
-        value: "81%",
-      },
-    ],
-    planLabel: "OAuth",
+    serviceStatus: null,
     sourceLabel: "oauth",
     state: "ready",
     updatedAt: "2026-03-10T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      displayMetrics: [
+        {
+          detail: null,
+          label: "Session",
+          value: "58%",
+        },
+        {
+          detail: null,
+          label: "Weekly",
+          value: "81%",
+        },
+      ],
+      providerCost: null,
+      quotaBuckets: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: {
+          detail: null,
+          label: "Session",
+          value: "58%",
+        },
+        sonnet: null,
+        weekly: {
+          detail: null,
+          label: "Weekly",
+          value: "81%",
+        },
+      },
+    },
     version: "1.2.3",
   };
 

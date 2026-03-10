@@ -86,24 +86,50 @@ const createInitializedAppStore = async (): Promise<ReturnType<typeof createAppS
 };
 
 const createCodexRefreshSnapshot = () => ({
-  accountEmail: "codex@example.com",
+  identity: {
+    accountEmail: "codex@example.com",
+    planLabel: "OAuth",
+  },
   latestError: null,
-  metrics: [
-    {
-      detail: null,
-      label: "Session",
-      value: "58%",
-    },
-    {
-      detail: null,
-      label: "Weekly",
-      value: "81%",
-    },
-  ],
-  planLabel: "OAuth",
+  serviceStatus: null,
   sourceLabel: "oauth",
   state: "ready" as const,
   updatedAt: updatedTimestamp,
+  usage: {
+    additional: [],
+    balances: {
+      credits: null,
+    },
+    displayMetrics: [
+      {
+        detail: null,
+        label: "Session",
+        value: "58%",
+      },
+      {
+        detail: null,
+        label: "Weekly",
+        value: "81%",
+      },
+    ],
+    providerCost: null,
+    quotaBuckets: [],
+    windows: {
+      flash: null,
+      pro: null,
+      session: {
+        detail: null,
+        label: "Session",
+        value: "58%",
+      },
+      sonnet: null,
+      weekly: {
+        detail: null,
+        label: "Weekly",
+        value: "81%",
+      },
+    },
+  },
   version: "1.2.3",
 });
 
@@ -366,7 +392,7 @@ test("shows in-flight refresh state and applies the final provider snapshot once
   expect(appStore.getProviderView("codex").actions.refresh.status).toBe("success");
   expect(appStore.getProviderView("codex").status.sourceLabel).toBe("oauth");
   expect(appStore.getProviderView("codex").status.updatedAt).toBe(updatedTimestamp);
-  expect(appStore.getProviderView("codex").status.metrics).toEqual([
+  expect(appStore.getProviderView("codex").status.usage.displayMetrics).toEqual([
     {
       detail: null,
       label: "Session",

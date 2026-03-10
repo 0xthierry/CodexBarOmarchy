@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createDefaultConfig } from "../../src/core/config/schema.ts";
 import { explicitNull } from "../../src/core/providers/shared.ts";
+import { getProviderSnapshotMetrics } from "../../src/core/store/runtime-state.ts";
 import type {
   RuntimeCommandLineSession,
   RuntimeCommandRunOptions,
@@ -272,6 +273,17 @@ test("codex refreshes against the real usage API contract", async () => {
           },
         }),
       ],
+      "GET https://status.openai.com/api/v2/status.json": [
+        createJsonResponse({
+          page: {
+            updated_at: "2026-03-08T11:59:00.000Z",
+          },
+          status: {
+            description: "Degraded performance",
+            indicator: "minor",
+          },
+        }),
+      ],
     },
   });
   const authPath = join(fixture.homeDirectory, ".codex", "auth.json");
@@ -300,10 +312,15 @@ test("codex refreshes against the real usage API contract", async () => {
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
-  expect(refreshResult.snapshot?.accountEmail).toBe("codex@example.com");
-  expect(refreshResult.snapshot?.planLabel).toBe("pro");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("codex@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("pro");
+  expect(refreshResult.snapshot?.serviceStatus).toEqual({
+    description: "Degraded performance",
+    indicator: "minor",
+    updatedAt: "2026-03-08T11:59:00.000Z",
+  });
   expect(refreshResult.snapshot?.version).toBe("0.111.0");
-  expect(refreshResult.snapshot?.metrics).toEqual([
+  expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "soon",
       label: "Session",
@@ -332,6 +349,13 @@ test("codex refreshes against the real usage API contract", async () => {
         timeoutMs: 15_000,
       },
       url: "https://chatgpt.com/backend-api/wham/usage",
+    },
+    {
+      options: {
+        method: "GET",
+        timeoutMs: 10_000,
+      },
+      url: "https://status.openai.com/api/v2/status.json",
     },
   ]);
 });
@@ -399,7 +423,7 @@ test("codex uses the cached access token before attempting stale-token refresh m
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
   expect(refreshResult.snapshot?.version).toBeNull();
-  expect(refreshResult.snapshot?.metrics).toEqual([
+  expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "soon",
       label: "Session",
@@ -464,13 +488,12 @@ test("codex falls back to the app-server CLI path when oauth is unavailable", as
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
-  expect(refreshResult.snapshot?.accountEmail).toBe("codex@example.com");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("codex@example.com");
   expect(refreshResult.snapshot?.version).toBe("0.111.0");
-  expect(refreshResult.snapshot?.metrics.map((metric) => metric.label)).toEqual([
-    "Session",
-    "Weekly",
-    "Credits",
-  ]);
+  expect(
+    refreshResult.snapshot &&
+      getProviderSnapshotMetrics(refreshResult.snapshot).map((metric) => metric.label),
+  ).toEqual(["Session", "Weekly", "Credits"]);
   expect(
     fixture.lineSessions["codex -s read-only -a never app-server"]?.writes.map((line) => {
       const payload = parseJsonRecord(line);
@@ -532,7 +555,7 @@ test("codex auto falls back to the CLI path when oauth credentials are invalid",
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
-  expect(refreshResult.snapshot?.accountEmail).toBe("codex@example.com");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("codex@example.com");
 });
 
 test("codex returns a refresh error when the usage request throws", async () => {
@@ -565,6 +588,12 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
     httpResponses: {
       "GET https://api.anthropic.com/api/oauth/usage": [
         createJsonResponse({
+          extra_usage: {
+            currency: "USD",
+            is_enabled: true,
+            monthly_limit: 5000,
+            used_credits: 1234,
+          },
           five_hour: {
             resets_at: "soon",
             utilization: 33,
@@ -576,6 +605,17 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
           seven_day_sonnet: {
             resets_at: "later",
             utilization: 47,
+          },
+        }),
+      ],
+      "GET https://status.claude.com/api/v2/status.json": [
+        createJsonResponse({
+          page: {
+            updated_at: "2026-03-08T11:57:00.000Z",
+          },
+          status: {
+            description: "Partial outage",
+            indicator: "major",
           },
         }),
       ],
@@ -655,10 +695,23 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
-  expect(refreshResult.snapshot?.accountEmail).toBe("claude@example.com");
-  expect(refreshResult.snapshot?.planLabel).toBe("default_claude_max_5x");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("default_claude_max_5x");
+  expect(refreshResult.snapshot?.serviceStatus).toEqual({
+    description: "Partial outage",
+    indicator: "major",
+    updatedAt: "2026-03-08T11:57:00.000Z",
+  });
+  expect(refreshResult.snapshot?.usage.providerCost).toEqual({
+    currencyCode: "USD",
+    limit: 50,
+    periodLabel: "Monthly",
+    resetsAt: null,
+    updatedAt,
+    used: 12.34,
+  });
   expect(refreshResult.snapshot?.version).toBe("2.1.71");
-  expect(refreshResult.snapshot?.metrics).toEqual([
+  expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "soon",
       label: "Session",
@@ -682,6 +735,7 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
   expect(fixture.httpRequests.map((request) => request.url)).toEqual([
     "https://platform.claude.com/v1/oauth/token",
     "https://api.anthropic.com/api/oauth/usage",
+    "https://status.claude.com/api/v2/status.json",
   ]);
 });
 
@@ -747,11 +801,12 @@ test("claude oauth falls back to auth status for account email and cli version",
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
-  expect(refreshResult.snapshot?.accountEmail).toBe("claude@example.com");
-  expect(refreshResult.snapshot?.planLabel).toBe("max");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("max");
   expect(refreshResult.snapshot?.version).toBe("2.1.71");
   expect(fixture.httpRequests.map((request) => request.url)).toEqual([
     "https://api.anthropic.com/api/oauth/usage",
+    "https://status.claude.com/api/v2/status.json",
   ]);
 });
 
@@ -869,13 +924,14 @@ test("codex refreshes oauth tokens after an unauthorized usage response using cl
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
-  expect(refreshResult.snapshot?.accountEmail).toBe("codex@example.com");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("codex@example.com");
   expect(readString(persistedTokens, "access_token")).toBe("codex-new-access-token");
   expect(readString(persistedTokens, "refresh_token")).toBe("codex-new-refresh-token");
   expect(fixture.httpRequests.map((request) => request.url)).toEqual([
     "https://chatgpt.com/backend-api/wham/usage",
     "https://auth.openai.com/oauth/token",
     "https://chatgpt.com/backend-api/wham/usage",
+    "https://status.openai.com/api/v2/status.json",
   ]);
   expect(fixture.httpRequests[1]?.options).toEqual({
     body: JSON.stringify({
@@ -936,7 +992,7 @@ test("claude auto falls back to cli when oauth refresh fails", async () => {
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
-  expect(refreshResult.snapshot?.accountEmail).toBe("cli@example.com");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("cli@example.com");
 });
 
 test("claude auto prefers the cli fallback before the web session fallback", async () => {
@@ -973,8 +1029,8 @@ test("claude auto prefers the cli fallback before the web session fallback", asy
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
-  expect(refreshResult.snapshot?.accountEmail).toBe("claude@example.com");
-  expect(refreshResult.snapshot?.planLabel).toBe("Max Plan");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max Plan");
 });
 
 test("claude auto falls back to the web snapshot when cli and local fallbacks both fail", async () => {
@@ -1019,8 +1075,8 @@ test("claude auto falls back to the web snapshot when cli and local fallbacks bo
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("web");
-  expect(refreshResult.snapshot?.accountEmail).toBe("web@example.com");
-  expect(refreshResult.snapshot?.planLabel).toBe("Claude Team");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("web@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Claude Team");
 });
 
 test("claude uses the manual session token for the web fallback path", async () => {
@@ -1072,7 +1128,7 @@ test("claude uses the manual session token for the web fallback path", async () 
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("web");
-  expect(refreshResult.snapshot?.planLabel).toBe("Claude Team");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Claude Team");
   expect(fixture.httpRequests).toEqual([
     {
       options: {
@@ -1095,6 +1151,13 @@ test("claude uses the manual session token for the web fallback path", async () 
         timeoutMs: 8000,
       },
       url: "https://claude.ai/api/organizations/org_123/usage",
+    },
+    {
+      options: {
+        method: "GET",
+        timeoutMs: 10_000,
+      },
+      url: "https://status.claude.com/api/v2/status.json",
     },
   ]);
 });
@@ -1135,8 +1198,16 @@ test("claude web automatic mode ignores manual token accounts and uses the token
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("web");
-  expect(refreshResult.snapshot?.accountEmail).toBe("auto@example.com");
-  expect(fixture.httpRequests).toEqual([]);
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("auto@example.com");
+  expect(fixture.httpRequests).toEqual([
+    {
+      options: {
+        method: "GET",
+        timeoutMs: 10_000,
+      },
+      url: "https://status.claude.com/api/v2/status.json",
+    },
+  ]);
 });
 
 test("claude web manual mode does not fall back to the token file", async () => {
@@ -1271,10 +1342,10 @@ test("claude auto falls back to local stats when oauth usage is rate limited and
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
-  expect(refreshResult.snapshot?.accountEmail).toBe("local@example.com");
-  expect(refreshResult.snapshot?.planLabel).toBe("max");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("local@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("max");
   expect(refreshResult.snapshot?.version).toBe("2.1.71");
-  expect(refreshResult.snapshot?.metrics).toEqual([
+  expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "2026-03-08",
       label: "Tokens",
@@ -1410,6 +1481,25 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
       },
     },
     httpResponses: {
+      "GET https://www.google.com/appsstatus/dashboard/incidents.json": [
+        createJsonResponse([
+          {
+            affected_products: [
+              {
+                id: "npdyhgECDJ6tB66MxXyo",
+                title: "Gemini",
+              },
+            ],
+            begin: "2026-03-08T12:00:00+00:00",
+            end: null,
+            most_recent_update: {
+              status: "SERVICE_INFORMATION",
+              text: "**Summary**\nMinor issue.\n",
+              when: "2026-03-08T12:05:00+00:00",
+            },
+          },
+        ]),
+      ],
       "POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist": [
         createJsonResponse({
           cloudaicompanionProject: "gen-lang-client-123",
@@ -1503,8 +1593,13 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("api");
-  expect(refreshResult.snapshot?.accountEmail).toBe("gemini@example.com");
-  expect(refreshResult.snapshot?.planLabel).toBe("Free");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("gemini@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Free");
+  expect(refreshResult.snapshot?.serviceStatus).toEqual({
+    description: "Minor issue.",
+    indicator: "minor",
+    updatedAt: "2026-03-08T12:05:00.000Z",
+  });
   expect(refreshResult.snapshot?.version).toBe("0.29.7");
   expect(readString(persistedCredentials, "access_token")).toBe("gemini-new-access-token");
   expect(readFiniteNumber(persistedCredentials, "expiry_date")).toBeGreaterThan(
@@ -1513,7 +1608,7 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
   expect(readString(persistedCredentials, "id_token")).toBe(
     "header.eyJlbWFpbCI6ImdlbWluaUBleGFtcGxlLmNvbSJ9.signature",
   );
-  expect(refreshResult.snapshot?.metrics).toEqual([
+  expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "tomorrow",
       label: "Pro",
@@ -1523,6 +1618,18 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
       detail: "later",
       label: "Flash",
       value: "59%",
+    },
+  ]);
+  expect(refreshResult.snapshot?.usage.quotaBuckets).toEqual([
+    {
+      modelId: "gemini-2.5-pro",
+      remainingFraction: 0.72,
+      resetTime: "tomorrow",
+    },
+    {
+      modelId: "gemini-2.5-flash",
+      remainingFraction: 0.41,
+      resetTime: "later",
     },
   ]);
   expect(persistedCredentials["access_token"]).toBe("gemini-new-access-token");

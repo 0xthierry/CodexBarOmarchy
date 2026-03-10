@@ -9,6 +9,16 @@ const providerViewActionStatuses = ["idle", "running", "success", "error", "unsu
 
 type ProviderRuntimeStatus = (typeof providerRuntimeStatuses)[number];
 type ProviderViewActionStatus = (typeof providerViewActionStatuses)[number];
+const providerServiceStatusIndicators = [
+  "none",
+  "maintenance",
+  "minor",
+  "major",
+  "critical",
+  "unknown",
+] as const;
+
+type ProviderServiceStatusIndicator = (typeof providerServiceStatusIndicators)[number];
 
 interface ProviderMetricView {
   detail: string | null;
@@ -16,14 +26,61 @@ interface ProviderMetricView {
   value: string;
 }
 
-interface ProviderRuntimeSnapshot {
+interface ProviderIdentitySnapshot {
   accountEmail: string | null;
-  latestError: string | null;
-  metrics: ProviderMetricView[];
   planLabel: string | null;
+}
+
+interface ProviderUsageWindowsSnapshot {
+  flash: ProviderMetricView | null;
+  pro: ProviderMetricView | null;
+  session: ProviderMetricView | null;
+  sonnet: ProviderMetricView | null;
+  weekly: ProviderMetricView | null;
+}
+
+interface ProviderUsageBalancesSnapshot {
+  credits: ProviderMetricView | null;
+}
+
+interface ProviderCostSnapshot {
+  currencyCode: string;
+  limit: number;
+  periodLabel: string | null;
+  resetsAt: string | null;
+  updatedAt: string | null;
+  used: number;
+}
+
+interface ProviderQuotaBucketSnapshot {
+  modelId: string;
+  remainingFraction: number;
+  resetTime: string | null;
+}
+
+interface ProviderUsageSnapshot {
+  additional: ProviderMetricView[];
+  balances: ProviderUsageBalancesSnapshot;
+  displayMetrics: ProviderMetricView[];
+  providerCost: ProviderCostSnapshot | null;
+  quotaBuckets: ProviderQuotaBucketSnapshot[];
+  windows: ProviderUsageWindowsSnapshot;
+}
+
+interface ProviderServiceStatusSnapshot {
+  description: string | null;
+  indicator: ProviderServiceStatusIndicator;
+  updatedAt: string | null;
+}
+
+interface ProviderRuntimeSnapshot {
+  identity: ProviderIdentitySnapshot;
+  latestError: string | null;
+  serviceStatus: ProviderServiceStatusSnapshot | null;
   sourceLabel: string | null;
   state: ProviderRuntimeStatus;
   updatedAt: string | null;
+  usage: ProviderUsageSnapshot;
   version: string | null;
 }
 
@@ -60,16 +117,42 @@ const isProviderActionSupported = (
   return true;
 };
 
-const createDefaultProviderRuntimeSnapshot = (): ProviderRuntimeSnapshot => ({
+const createDefaultProviderIdentitySnapshot = (): ProviderIdentitySnapshot => ({
   accountEmail: explicitNull,
-  latestError: explicitNull,
-  metrics: [],
   planLabel: explicitNull,
+});
+
+const createDefaultProviderUsageSnapshot = (): ProviderUsageSnapshot => ({
+  additional: [],
+  balances: {
+    credits: explicitNull,
+  },
+  displayMetrics: [],
+  providerCost: explicitNull,
+  quotaBuckets: [],
+  windows: {
+    flash: explicitNull,
+    pro: explicitNull,
+    session: explicitNull,
+    sonnet: explicitNull,
+    weekly: explicitNull,
+  },
+});
+
+const createDefaultProviderRuntimeSnapshot = (): ProviderRuntimeSnapshot => ({
+  identity: createDefaultProviderIdentitySnapshot(),
+  latestError: explicitNull,
+  serviceStatus: explicitNull,
   sourceLabel: explicitNull,
   state: "idle",
   updatedAt: explicitNull,
+  usage: createDefaultProviderUsageSnapshot(),
   version: explicitNull,
 });
+
+const getProviderSnapshotMetrics = (
+  snapshot: ProviderRuntimeSnapshot,
+): readonly ProviderMetricView[] => snapshot.usage.displayMetrics;
 
 const createDefaultProviderActionView = <ActionValue extends ProviderActionName>(
   providerId: ProviderId,
@@ -101,16 +184,26 @@ export {
   createDefaultProviderRuntimeSnapshot,
   createDefaultProviderRuntimeState,
   createDefaultProviderRuntimeStateMap,
+  getProviderSnapshotMetrics,
   isProviderActionSupported,
   providerActionNames,
   providerRuntimeStatuses,
+  providerServiceStatusIndicators,
   providerViewActionStatuses,
   type ProviderActionView,
   type ProviderActionViewMap,
+  type ProviderCostSnapshot,
+  type ProviderIdentitySnapshot,
   type ProviderMetricView,
+  type ProviderQuotaBucketSnapshot,
   type ProviderRuntimeSnapshot,
   type ProviderRuntimeState,
   type ProviderRuntimeStateMap,
   type ProviderRuntimeStatus,
+  type ProviderServiceStatusIndicator,
+  type ProviderServiceStatusSnapshot,
+  type ProviderUsageBalancesSnapshot,
+  type ProviderUsageSnapshot,
+  type ProviderUsageWindowsSnapshot,
   type ProviderViewActionStatus,
 };

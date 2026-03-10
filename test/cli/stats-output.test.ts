@@ -22,19 +22,52 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
   ];
   config.providers.claude.activeTokenAccountIndex = 1;
   runtimeStateMap.claude.snapshot = {
-    accountEmail: "claude@example.com",
+    identity: {
+      accountEmail: "claude@example.com",
+      planLabel: "Max",
+    },
     latestError: null,
-    metrics: [
-      {
-        detail: null,
-        label: "Session",
-        value: "72%",
-      },
-    ],
-    planLabel: "Max",
+    serviceStatus: {
+      description: "Degraded performance",
+      indicator: "minor",
+      updatedAt: "2026-03-10T11:58:00.000Z",
+    },
     sourceLabel: "Web",
     state: "ready",
     updatedAt: "2026-03-10T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      displayMetrics: [
+        {
+          detail: null,
+          label: "Session",
+          value: "72%",
+        },
+      ],
+      providerCost: {
+        currencyCode: "USD",
+        limit: 50,
+        periodLabel: "Monthly",
+        resetsAt: null,
+        updatedAt: "2026-03-10T12:00:00.000Z",
+        used: 12.34,
+      },
+      quotaBuckets: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: {
+          detail: null,
+          label: "Session",
+          value: "72%",
+        },
+        sonnet: null,
+        weekly: null,
+      },
+    },
     version: "1.0.0",
   };
 
@@ -46,6 +79,24 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
   expect(claudeProvider?.settings).toEqual({
     activeTokenAccountIndex: 1,
     tokenAccountLabels: ["primary", "backup"],
+  });
+  expect(claudeProvider?.identity).toEqual({
+    accountEmail: "claude@example.com",
+    planLabel: "Max",
+  });
+  expect(claudeProvider?.serviceStatus).toEqual({
+    description: "Degraded performance",
+    indicator: "minor",
+    updatedAt: "2026-03-10T11:58:00.000Z",
+  });
+  expect(claudeProvider?.usage.windows.session?.value).toBe("72%");
+  expect(claudeProvider?.usage.providerCost).toEqual({
+    currencyCode: "USD",
+    limit: 50,
+    periodLabel: "Monthly",
+    resetsAt: null,
+    updatedAt: "2026-03-10T12:00:00.000Z",
+    used: 12.34,
   });
   expect(JSON.stringify(snapshot)).not.toContain("secret-1");
   expect(JSON.stringify(snapshot)).not.toContain("secret-2");

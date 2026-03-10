@@ -1,4 +1,9 @@
 import { findCurrentChoiceLabel, getSettingsItems } from "@/ui/tui/descriptors.ts";
+import { getProviderSnapshotMetrics } from "@/core/store/runtime-state.ts";
+import type {
+  ProviderCostSnapshot,
+  ProviderQuotaBucketSnapshot,
+} from "@/core/store/runtime-state.ts";
 import type {
   ProviderId,
   ProviderView,
@@ -118,6 +123,79 @@ const humanizeValue = (value: string): string => {
   return value;
 };
 
+const formatProviderHealthLabel = (value: ProviderView["status"]["serviceStatus"]): string => {
+  if (value === null) {
+    return "Unknown";
+  }
+
+  if (value.indicator === "none") {
+    return "Operational";
+  }
+
+  if (value.indicator === "maintenance") {
+    return "Maintenance";
+  }
+
+  if (value.indicator === "minor") {
+    return "Minor issue";
+  }
+
+  if (value.indicator === "major") {
+    return "Major issue";
+  }
+
+  if (value.indicator === "critical") {
+    return "Critical outage";
+  }
+
+  return "Unknown";
+};
+
+const formatCurrencyAmount = (value: number, currencyCode: string): string =>
+  `${currencyCode} ${value.toFixed(2)}`;
+
+const formatProviderCostLabel = (value: ProviderCostSnapshot): string => {
+  const periodSuffix =
+    value.periodLabel === null || value.periodLabel.trim() === "" ? "" : ` ${value.periodLabel}`;
+
+  return `${formatCurrencyAmount(value.used, value.currencyCode)} / ${formatCurrencyAmount(value.limit, value.currencyCode)}${periodSuffix}`;
+};
+
+const getProviderCostPercent = (value: ProviderCostSnapshot): number | null => {
+  if (value.limit <= 0) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(100, Math.round((value.used / value.limit) * 100)));
+};
+
+const formatQuotaBucketLabel = (value: ProviderQuotaBucketSnapshot): string => {
+  const usedPercent = Math.max(0, Math.min(100, Math.round((1 - value.remainingFraction) * 100)));
+  const detail = describeMetric("Pro", value.resetTime);
+
+  if (detail === null) {
+    return `${value.modelId} ${String(usedPercent)}%`;
+  }
+
+  return `${value.modelId} ${String(usedPercent)}% • ${detail}`;
+};
+
+const createQuotaBucketSummaryLines = (quotaBuckets: ProviderQuotaBucketSnapshot[]): string[] => {
+  if (quotaBuckets.length === 0) {
+    return [];
+  }
+
+  const visibleBuckets = quotaBuckets.slice(0, 3);
+  const hiddenBucketCount = quotaBuckets.length - visibleBuckets.length;
+
+  return [
+    "",
+    `Raw quotas ${String(quotaBuckets.length)} models`,
+    ...visibleBuckets.map((bucket) => formatQuotaBucketLabel(bucket)),
+    ...(hiddenBucketCount > 0 ? [`+${String(hiddenBucketCount)} more`] : []),
+  ];
+};
+
 const describeMetric = (label: string, detail: string | null): string | null => {
   if (typeof detail === "string" && detail.trim() !== "") {
     const parsed = parseIsoDate(detail);
@@ -210,7 +288,7 @@ const createTabs = (state: AppStoreState, localState: TuiLocalState): TuiTabView
 const createHeaderLines = (providerView: ProviderView, now: Date): string[] => {
   const summaryParts = [
     formatHeaderClockDisplay(now),
-    humanizeValue(providerView.status.planLabel ?? "unknown"),
+    humanizeValue(providerView.status.identity.planLabel ?? "unknown"),
     humanizeValue(providerView.status.state),
   ];
 
@@ -221,11 +299,13 @@ const createHeaderLines = (providerView: ProviderView, now: Date): string[] => {
 };
 
 const createUsageLines = (providerView: ProviderView): string[] => {
-  if (providerView.status.metrics.length === 0) {
+  const displayMetrics = getProviderSnapshotMetrics(providerView.status);
+
+  if (displayMetrics.length === 0) {
     return ["No usage data yet.", "Press r to refresh the selected provider."];
   }
 
-  const lines = providerView.status.metrics.flatMap((metric, metricIndex) => {
+  const lines = displayMetrics.flatMap((metric, metricIndex) => {
     const detail = describeMetric(metric.label, metric.detail);
     const ratioMatch = /^(\d+)(?:\.\d+)?%$/.exec(metric.value.trim());
     const ratio = ratioMatch === null ? null : Math.max(0, Math.min(100, Number(ratioMatch[1])));
@@ -236,12 +316,45 @@ const createUsageLines = (providerView: ProviderView): string[] => {
       `${metric.label.padEnd(12, " ")}${metric.value}`,
       ...(meter === "" ? [] : [meter]),
       ...(detail === null ? [] : [detail]),
-      ...(metricIndex === providerView.status.metrics.length - 1 ? [] : [""]),
+      ...(metricIndex === displayMetrics.length - 1 ? [] : [""]),
     ];
   });
 
   if (providerView.status.latestError !== null) {
     lines.push("", `Latest error: ${providerView.status.latestError}`);
+  }
+
+  const { providerCost } = providerView.status.usage;
+
+  if (providerCost !== null) {
+    const percentUsed = getProviderCostPercent(providerCost);
+    const filledCount = percentUsed === null ? 0 : Math.round((percentUsed / 100) * 16);
+    const meter =
+      percentUsed === null ? "" : `${"█".repeat(filledCount)}${"░".repeat(16 - filledCount)}`;
+
+    lines.push("", `Extra usage ${percentUsed === null ? "" : `${String(percentUsed)}%`}`.trim());
+
+    if (meter !== "") {
+      lines.push(meter);
+    }
+
+    lines.push(formatProviderCostLabel(providerCost));
+  }
+
+  lines.push(...createQuotaBucketSummaryLines(providerView.status.usage.quotaBuckets));
+
+  if (providerView.status.serviceStatus !== null) {
+    lines.push(
+      "",
+      `Provider health: ${formatProviderHealthLabel(providerView.status.serviceStatus)}`,
+    );
+
+    if (
+      providerView.status.serviceStatus.indicator !== "none" &&
+      providerView.status.serviceStatus.description !== null
+    ) {
+      lines.push(providerView.status.serviceStatus.description);
+    }
   }
 
   return lines;
@@ -250,15 +363,29 @@ const createUsageLines = (providerView: ProviderView): string[] => {
 const createDetailsLines = (providerView: ProviderView): string[] => {
   const rows: [string, string][] = [
     ["state", humanizeValue(providerView.status.state)],
+    ["health", formatProviderHealthLabel(providerView.status.serviceStatus)],
     ["source", humanizeValue(providerView.status.sourceLabel ?? "unknown")],
     ["version", providerView.status.version ?? "unknown"],
     ["updated", formatUpdatedDisplay(providerView.status.updatedAt)],
-    ["account", providerView.status.accountEmail ?? "unknown"],
-    ["plan", providerView.status.planLabel ?? "unknown"],
+    ["account", providerView.status.identity.accountEmail ?? "unknown"],
+    ["plan", providerView.status.identity.planLabel ?? "unknown"],
   ];
 
   if (providerView.status.latestError !== null) {
     rows.push(["error", providerView.status.latestError]);
+  }
+
+  if (providerView.status.usage.providerCost !== null) {
+    rows.push(["extra", formatProviderCostLabel(providerView.status.usage.providerCost)]);
+  }
+  if (providerView.status.usage.quotaBuckets.length > 0) {
+    rows.push(["quotas", `${String(providerView.status.usage.quotaBuckets.length)} raw buckets`]);
+  }
+
+  const { serviceStatus } = providerView.status;
+
+  if (serviceStatus !== null && serviceStatus.description !== null) {
+    rows.push(["impact", serviceStatus.description]);
   }
 
   return rows.map(([label, value]) => `${label.padEnd(8, " ")} ${value}`);
@@ -388,7 +515,7 @@ const createModalViewModel = (
     settingsItems,
     subtitleLines: [
       `${providerView.id.toUpperCase()}  ${providerView.status.sourceLabel ?? "awaiting refresh"}`,
-      `${humanizeValue(providerView.status.planLabel ?? "unknown")}  •  ${providerView.enabled ? "enabled" : "disabled"}`,
+      `${humanizeValue(providerView.status.identity.planLabel ?? "unknown")}  •  ${providerView.enabled ? "enabled" : "disabled"}`,
     ],
     title: `settings • ${providerView.id}`,
   };
@@ -437,6 +564,7 @@ export {
   formatHeaderClockDisplay,
   formatUpdatedDisplay,
   humanizeValue,
+  formatProviderHealthLabel,
   parseIsoDate,
   truncate,
 };
