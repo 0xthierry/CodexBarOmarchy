@@ -1,7 +1,14 @@
 import { getSettingsItems } from "@/ui/tui/descriptors.ts";
-import type { ProviderId, TuiKeyInput, TuiLocalState } from "@/ui/tui/types.ts";
 import type { AppStore } from "@/core/store/app-store.ts";
 import type { AppStoreState } from "@/core/store/state.ts";
+import type {
+  ProviderId,
+  ProviderView,
+  TuiKeyInput,
+  TuiLocalState,
+  TuiSettingsChoice,
+  TuiSettingsItemDescriptor,
+} from "@/ui/tui/types.ts";
 
 interface TuiControllerSnapshot {
   localState: TuiLocalState;
@@ -9,13 +16,20 @@ interface TuiControllerSnapshot {
 }
 
 interface TuiController {
+  activateSelectedSettingsItem: () => Promise<void>;
+  applySelectedChoice: () => Promise<void>;
   closeSettings: () => void;
   destroy: () => void;
+  focusModalChoices: () => void;
+  focusModalItems: () => void;
   getSnapshot: () => TuiControllerSnapshot;
   handleKeyPress: (key: TuiKeyInput) => boolean;
   openSettings: () => void;
+  refreshSelectedProvider: () => Promise<void>;
   requestQuit: () => void;
   selectProvider: (providerId: ProviderId) => Promise<void>;
+  setSelectedChoiceIndex: (index: number) => void;
+  setSelectedSettingsIndex: (index: number) => void;
   subscribe: (listener: (snapshot: TuiControllerSnapshot) => void) => () => void;
 }
 
@@ -34,15 +48,76 @@ const createInitialLocalState = (): TuiLocalState => ({
 });
 
 const isDigitShortcut = (key: TuiKeyInput): boolean => /^[1-9]$/.test(key.name);
+const isEnterKey = (key: TuiKeyInput): boolean => key.name === "enter" || key.name === "return";
+const isTabKey = (key: TuiKeyInput): boolean => key.name === "tab";
+const isBackspaceKey = (key: TuiKeyInput): boolean => key.name === "backspace";
+const isArrowKey = (key: TuiKeyInput): boolean =>
+  key.name === "down" || key.name === "left" || key.name === "right" || key.name === "up";
+const isPrintableKey = (key: TuiKeyInput): boolean =>
+  !key.ctrl && !key.meta && key.sequence.length === 1 && key.name !== "escape";
+const normalizeCodexSource = (value: string): "auto" | "cli" | "oauth" => {
+  if (value === "cli" || value === "oauth") {
+    return value;
+  }
+
+  return "auto";
+};
+
+const normalizeCodexCookieSource = (value: string): "auto" | "manual" | "off" => {
+  if (value === "auto" || value === "manual") {
+    return value;
+  }
+
+  return "off";
+};
+
+const normalizeClaudeSource = (value: string): "auto" | "cli" | "oauth" | "web" => {
+  if (value === "cli" || value === "oauth" || value === "web") {
+    return value;
+  }
+
+  return "auto";
+};
+
+const normalizeClaudeCookieSource = (value: string): "auto" | "manual" =>
+  value === "manual" ? value : "auto";
 
 const createTuiController = (options: CreateTuiControllerOptions): TuiController => {
   let localState = createInitialLocalState();
   const listeners = new Set<(snapshot: TuiControllerSnapshot) => void>();
+  const getState = (): AppStoreState => options.appStore.getState();
+
+  const getSelectedProvider = (): ProviderView => {
+    const selectedProvider = getState().providerViews.find(
+      (providerView) => providerView.id === getState().selectedProviderId,
+    );
+
+    if (selectedProvider !== undefined) {
+      return selectedProvider;
+    }
+
+    const fallbackProvider = getState().providerViews[0];
+
+    if (fallbackProvider === undefined) {
+      throw new Error("Expected at least one provider view.");
+    }
+
+    return fallbackProvider;
+  };
+
+  const getSelectedSettingsItems = (): TuiSettingsItemDescriptor[] =>
+    getSettingsItems(getSelectedProvider());
+
+  const getSelectedSettingsItem = (): TuiSettingsItemDescriptor | null => {
+    const selectedSettingsItems = getSelectedSettingsItems();
+
+    return selectedSettingsItems[localState.selectedSettingsIndex] ?? null;
+  };
 
   const emit = (): void => {
     const snapshot = {
       localState,
-      state: options.appStore.getState(),
+      state: getState(),
     };
 
     for (const listener of listeners) {
@@ -51,35 +126,27 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   };
 
   const clampSelection = (): void => {
-    const selectedProvider = options.appStore
-      .getState()
-      .providerViews.find(
-        (providerView) => providerView.id === options.appStore.getState().selectedProviderId,
-      );
-
-    if (selectedProvider === undefined) {
-      localState = {
-        ...localState,
-        selectedChoiceIndex: 0,
-        selectedSettingsIndex: 0,
-      };
-
-      return;
-    }
-
-    const settingsItems = getSettingsItems(selectedProvider);
+    const settingsItems = getSelectedSettingsItems();
     const selectedSettingsIndex = Math.max(
       0,
       Math.min(localState.selectedSettingsIndex, Math.max(0, settingsItems.length - 1)),
     );
     const selectedItem = settingsItems[selectedSettingsIndex];
-    const selectedChoiceIndex = Math.max(
-      0,
-      Math.min(
-        localState.selectedChoiceIndex,
-        Math.max(0, (selectedItem?.choices.length ?? 1) - 1),
-      ),
-    );
+    const selectedChoiceIndex = (() => {
+      if (selectedItem === undefined || selectedItem.choices.length === 0) {
+        return 0;
+      }
+
+      const currentChoiceIndex = selectedItem.choices.findIndex(
+        (choice) => choice.value === selectedItem.currentValue,
+      );
+
+      if (currentChoiceIndex !== -1) {
+        return currentChoiceIndex;
+      }
+
+      return Math.max(0, Math.min(localState.selectedChoiceIndex, selectedItem.choices.length - 1));
+    })();
 
     localState = {
       ...localState,
@@ -88,18 +155,29 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     };
   };
 
-  const setFooterMessage = (footerMessage: string | null): void => {
-    localState = {
-      ...localState,
-      footerMessage,
-    };
+  const syncChoiceIndex = (): void => {
+    clampSelection();
   };
 
-  const selectProvider = async (providerId: ProviderId): Promise<void> => {
+  const setLocalState = (nextLocalState: TuiLocalState): void => {
+    localState = nextLocalState;
+  };
+
+  const setFooterMessage = (footerMessage: string | null): void => {
+    setLocalState({
+      ...localState,
+      footerMessage,
+    });
+  };
+
+  const runStoreMutation = async (
+    operation: () => Promise<unknown>,
+    successMessage: string,
+  ): Promise<void> => {
     try {
-      await options.appStore.selectProvider(providerId);
-      clampSelection();
-      setFooterMessage(`Selected ${providerId}.`);
+      await operation();
+      syncChoiceIndex();
+      setFooterMessage(successMessage);
       emit();
     } catch (error) {
       setFooterMessage(error instanceof Error ? error.message : String(error));
@@ -107,11 +185,12 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     }
   };
 
+  const selectProvider = async (providerId: ProviderId): Promise<void> =>
+    runStoreMutation(() => options.appStore.selectProvider(providerId), `Selected ${providerId}.`);
+
   const selectProviderByOffset = async (offset: -1 | 1): Promise<void> => {
-    const providerIds = options.appStore
-      .getState()
-      .providerViews.map((providerView) => providerView.id);
-    const currentIndex = providerIds.indexOf(options.appStore.getState().selectedProviderId);
+    const providerIds = getState().providerViews.map((providerView) => providerView.id);
+    const currentIndex = providerIds.indexOf(getState().selectedProviderId);
     const nextIndex = (currentIndex + offset + providerIds.length) % providerIds.length;
     const nextProviderId = providerIds[nextIndex];
 
@@ -120,35 +199,469 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     }
   };
 
+  const setSelectedSettingsIndex = (index: number): void => {
+    setLocalState({
+      ...localState,
+      modalFocus: localState.tokenAccountEditor === null ? "items" : "editor",
+      selectedSettingsIndex: index,
+    });
+    syncChoiceIndex();
+    emit();
+  };
+
+  const setSelectedChoiceIndex = (index: number): void => {
+    setLocalState({
+      ...localState,
+      selectedChoiceIndex: index,
+    });
+    emit();
+  };
+
+  const focusModalItems = (): void => {
+    setLocalState({
+      ...localState,
+      modalFocus: localState.tokenAccountEditor === null ? "items" : "editor",
+    });
+    emit();
+  };
+
+  const focusModalChoices = (): void => {
+    const selectedItem = getSelectedSettingsItem();
+
+    if (
+      selectedItem === null ||
+      selectedItem.choices.length === 0 ||
+      localState.tokenAccountEditor !== null
+    ) {
+      return;
+    }
+
+    setLocalState({
+      ...localState,
+      modalFocus: "choices",
+    });
+    syncChoiceIndex();
+    emit();
+  };
+
   const openSettings = (): void => {
-    clampSelection();
-    localState = {
+    setLocalState({
       ...localState,
       footerMessage: null,
       isSettingsOpen: true,
       modalFocus: "items",
       tokenAccountEditor: null,
-    };
+    });
+    syncChoiceIndex();
     emit();
   };
 
   const closeSettings = (): void => {
-    localState = {
+    setLocalState({
       ...localState,
       footerMessage: "Closed settings.",
       isSettingsOpen: false,
       modalFocus: "items",
       tokenAccountEditor: null,
-    };
+    });
     emit();
   };
 
   const requestQuit = (): void => {
-    localState = {
+    setLocalState({
       ...localState,
       quitRequested: true,
-    };
+    });
     emit();
+  };
+
+  const refreshSelectedProvider = async (): Promise<void> => {
+    const providerId = getState().selectedProviderId;
+
+    setFooterMessage(`Refreshing ${providerId}...`);
+    emit();
+
+    try {
+      const refreshResult = await options.appStore.refreshProvider(providerId);
+
+      setFooterMessage(refreshResult.message ?? `Refreshed ${providerId}.`);
+      emit();
+    } catch (error) {
+      setFooterMessage(error instanceof Error ? error.message : String(error));
+      emit();
+    }
+  };
+
+  const updateCurrentProviderEnabled = async (enabled: boolean): Promise<void> => {
+    const providerId = getSelectedProvider().id;
+
+    await runStoreMutation(
+      () => options.appStore.setProviderEnabled(providerId, enabled),
+      `${enabled ? "Enabled" : "Disabled"} ${providerId}.`,
+    );
+  };
+
+  const updateSelectedChoice = async (
+    item: TuiSettingsItemDescriptor,
+    choice: TuiSettingsChoice,
+  ): Promise<void> => {
+    const providerId = getSelectedProvider().id;
+
+    if (item.id === "shared:enabled") {
+      await updateCurrentProviderEnabled(choice.value === "on");
+      return;
+    }
+
+    if (item.id === "codex:source") {
+      await runStoreMutation(
+        () =>
+          options.appStore.setCodexConfig((providerConfig) => ({
+            ...providerConfig,
+            source: normalizeCodexSource(choice.value),
+          })),
+        `Set Codex usage source to ${choice.label}.`,
+      );
+      return;
+    }
+
+    if (item.id === "codex:cookie-source") {
+      await runStoreMutation(
+        () =>
+          options.appStore.setCodexConfig((providerConfig) => ({
+            ...providerConfig,
+            cookieSource: normalizeCodexCookieSource(choice.value),
+          })),
+        `Set Codex cookie mode to ${choice.label}.`,
+      );
+      return;
+    }
+
+    if (item.id === "codex:historical-tracking") {
+      await runStoreMutation(
+        () =>
+          options.appStore.setCodexConfig((providerConfig) => ({
+            ...providerConfig,
+            historicalTrackingEnabled: choice.value === "on",
+          })),
+        `${choice.value === "on" ? "Enabled" : "Disabled"} Codex historical tracking.`,
+      );
+      return;
+    }
+
+    if (item.id === "codex:web-extras") {
+      await runStoreMutation(
+        () =>
+          options.appStore.setCodexConfig((providerConfig) => ({
+            ...providerConfig,
+            extrasEnabled: choice.value === "on",
+          })),
+        `${choice.value === "on" ? "Enabled" : "Disabled"} Codex web extras.`,
+      );
+      return;
+    }
+
+    if (item.id === "claude:source") {
+      await runStoreMutation(
+        () =>
+          options.appStore.setClaudeConfig((providerConfig) => ({
+            ...providerConfig,
+            source: normalizeClaudeSource(choice.value),
+          })),
+        `Set Claude usage source to ${choice.label}.`,
+      );
+      return;
+    }
+
+    if (item.id === "claude:cookie-source") {
+      await runStoreMutation(
+        () =>
+          options.appStore.setClaudeConfig((providerConfig) => ({
+            ...providerConfig,
+            cookieSource: normalizeClaudeCookieSource(choice.value),
+          })),
+        `Set Claude cookie mode to ${choice.label}.`,
+      );
+      return;
+    }
+
+    if (item.id === "claude:active-token-account") {
+      await runStoreMutation(
+        () =>
+          options.appStore.setClaudeConfig((providerConfig) => ({
+            ...providerConfig,
+            activeTokenAccountIndex: Number(choice.value),
+          })),
+        `Selected Claude token account ${choice.label}.`,
+      );
+      return;
+    }
+
+    if (providerId === "gemini" && item.id === "shared:enabled") {
+      await updateCurrentProviderEnabled(choice.value === "on");
+    }
+  };
+
+  const startClaudeTokenAccountEditor = (): void => {
+    setLocalState({
+      ...localState,
+      footerMessage: null,
+      modalFocus: "editor",
+      tokenAccountEditor: {
+        errorMessage: null,
+        field: "label",
+        label: "",
+        providerId: "claude",
+        token: "",
+      },
+    });
+    emit();
+  };
+
+  const removeActiveClaudeTokenAccount = async (): Promise<void> => {
+    const providerView = getSelectedProvider();
+
+    if (providerView.id !== "claude" || providerView.settings.tokenAccounts.length === 0) {
+      return;
+    }
+
+    const activeTokenAccount =
+      providerView.settings.tokenAccounts[providerView.settings.activeTokenAccountIndex];
+
+    await runStoreMutation(
+      () =>
+        options.appStore.setClaudeConfig((providerConfig) => ({
+          ...providerConfig,
+          tokenAccounts: providerConfig.tokenAccounts.filter(
+            (_tokenAccount, index) => index !== providerConfig.activeTokenAccountIndex,
+          ),
+        })),
+      `Removed Claude token account ${activeTokenAccount?.label ?? "account"}.`,
+    );
+  };
+
+  const activateSelectedSettingsItem = async (): Promise<void> => {
+    const selectedItem = getSelectedSettingsItem();
+
+    if (selectedItem === null || !selectedItem.enabled) {
+      return;
+    }
+
+    if (selectedItem.kind === "toggle") {
+      const nextChoice = selectedItem.choices.find(
+        (choice) => choice.value !== selectedItem.currentValue,
+      );
+
+      if (nextChoice !== undefined) {
+        await updateSelectedChoice(selectedItem, nextChoice);
+      }
+
+      return;
+    }
+
+    if (selectedItem.kind === "select") {
+      focusModalChoices();
+      return;
+    }
+
+    if (selectedItem.kind === "action" && selectedItem.id === "claude:add-token-account") {
+      startClaudeTokenAccountEditor();
+      return;
+    }
+
+    if (selectedItem.kind === "action" && selectedItem.id === "claude:remove-token-account") {
+      await removeActiveClaudeTokenAccount();
+    }
+  };
+
+  const applySelectedChoice = async (): Promise<void> => {
+    const selectedItem = getSelectedSettingsItem();
+
+    if (
+      selectedItem === null ||
+      selectedItem.kind !== "select" ||
+      selectedItem.choices.length === 0 ||
+      !selectedItem.enabled
+    ) {
+      return;
+    }
+
+    const selectedChoice = selectedItem.choices[localState.selectedChoiceIndex];
+
+    if (selectedChoice === undefined) {
+      return;
+    }
+
+    await updateSelectedChoice(selectedItem, selectedChoice);
+    setLocalState({
+      ...localState,
+      modalFocus: "items",
+    });
+    emit();
+  };
+
+  const cancelTokenAccountEditor = (): void => {
+    setLocalState({
+      ...localState,
+      footerMessage: "Cancelled Claude token account entry.",
+      modalFocus: "items",
+      tokenAccountEditor: null,
+    });
+    emit();
+  };
+
+  const switchTokenAccountEditorField = (): void => {
+    if (localState.tokenAccountEditor === null) {
+      return;
+    }
+
+    setLocalState({
+      ...localState,
+      tokenAccountEditor: {
+        ...localState.tokenAccountEditor,
+        field: localState.tokenAccountEditor.field === "label" ? "token" : "label",
+      },
+    });
+    emit();
+  };
+
+  const appendTokenAccountEditorText = (value: string): void => {
+    if (localState.tokenAccountEditor === null) {
+      return;
+    }
+
+    if (localState.tokenAccountEditor.field === "label") {
+      setLocalState({
+        ...localState,
+        tokenAccountEditor: {
+          ...localState.tokenAccountEditor,
+          errorMessage: null,
+          label: `${localState.tokenAccountEditor.label}${value}`,
+        },
+      });
+      emit();
+      return;
+    }
+
+    setLocalState({
+      ...localState,
+      tokenAccountEditor: {
+        ...localState.tokenAccountEditor,
+        errorMessage: null,
+        token: `${localState.tokenAccountEditor.token}${value}`,
+      },
+    });
+    emit();
+  };
+
+  const deleteTokenAccountEditorText = (): void => {
+    if (localState.tokenAccountEditor === null) {
+      return;
+    }
+
+    if (localState.tokenAccountEditor.field === "label") {
+      setLocalState({
+        ...localState,
+        tokenAccountEditor: {
+          ...localState.tokenAccountEditor,
+          label: localState.tokenAccountEditor.label.slice(0, -1),
+        },
+      });
+      emit();
+      return;
+    }
+
+    setLocalState({
+      ...localState,
+      tokenAccountEditor: {
+        ...localState.tokenAccountEditor,
+        token: localState.tokenAccountEditor.token.slice(0, -1),
+      },
+    });
+    emit();
+  };
+
+  const submitTokenAccountEditor = async (): Promise<void> => {
+    if (localState.tokenAccountEditor === null) {
+      return;
+    }
+
+    const trimmedLabel = localState.tokenAccountEditor.label.trim();
+    const trimmedToken = localState.tokenAccountEditor.token.trim();
+
+    if (trimmedLabel === "" || trimmedToken === "") {
+      setLocalState({
+        ...localState,
+        tokenAccountEditor: {
+          ...localState.tokenAccountEditor,
+          errorMessage: "Both label and token are required.",
+        },
+      });
+      emit();
+      return;
+    }
+
+    await runStoreMutation(
+      () =>
+        options.appStore.setClaudeConfig((providerConfig) => ({
+          ...providerConfig,
+          activeTokenAccountIndex: providerConfig.tokenAccounts.length,
+          tokenAccounts: [
+            ...providerConfig.tokenAccounts,
+            {
+              label: trimmedLabel,
+              token: trimmedToken,
+            },
+          ],
+        })),
+      `Added Claude token account ${trimmedLabel}.`,
+    );
+    setLocalState({
+      ...localState,
+      modalFocus: "items",
+      tokenAccountEditor: null,
+    });
+    emit();
+  };
+
+  const handleEditorKeyPress = (key: TuiKeyInput): boolean => {
+    if (localState.tokenAccountEditor === null) {
+      return false;
+    }
+
+    if (key.name === "escape") {
+      cancelTokenAccountEditor();
+      return true;
+    }
+
+    if (isTabKey(key)) {
+      switchTokenAccountEditorField();
+      return true;
+    }
+
+    if (isBackspaceKey(key)) {
+      deleteTokenAccountEditorText();
+      return true;
+    }
+
+    if (isEnterKey(key)) {
+      if (localState.tokenAccountEditor.field === "label") {
+        switchTokenAccountEditorField();
+      } else {
+        void submitTokenAccountEditor();
+      }
+      return true;
+    }
+
+    if (isPrintableKey(key)) {
+      appendTokenAccountEditorText(key.sequence);
+      return true;
+    }
+
+    if (isArrowKey(key)) {
+      return true;
+    }
+
+    return false;
   };
 
   const handleKeyPress = (key: TuiKeyInput): boolean => {
@@ -157,19 +670,53 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
       return true;
     }
 
-    if (key.name === "q" && localState.tokenAccountEditor === null) {
+    if (handleEditorKeyPress(key)) {
+      return true;
+    }
+
+    if (key.name === "q") {
       requestQuit();
       return true;
     }
 
-    if (key.name === "," && localState.tokenAccountEditor === null) {
+    if (key.name === "r") {
+      void refreshSelectedProvider();
+      return true;
+    }
+
+    if (key.name === ",") {
       openSettings();
       return true;
     }
 
-    if (key.name === "escape" && localState.isSettingsOpen) {
-      closeSettings();
-      return true;
+    if (localState.isSettingsOpen) {
+      if (key.name === "escape") {
+        closeSettings();
+        return true;
+      }
+
+      if (isTabKey(key)) {
+        if (localState.modalFocus === "choices") {
+          focusModalItems();
+        } else {
+          focusModalChoices();
+        }
+        return true;
+      }
+
+      if (isEnterKey(key)) {
+        if (localState.modalFocus === "choices") {
+          void applySelectedChoice();
+        } else {
+          void activateSelectedSettingsItem();
+        }
+        return true;
+      }
+
+      if (key.name === "space") {
+        void activateSelectedSettingsItem();
+        return true;
+      }
     }
 
     if (key.name === "h" || key.name === "left") {
@@ -201,19 +748,26 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   });
 
   return {
+    activateSelectedSettingsItem,
+    applySelectedChoice,
     closeSettings,
     destroy: (): void => {
       unsubscribeFromStore();
       listeners.clear();
     },
+    focusModalChoices,
+    focusModalItems,
     getSnapshot: (): TuiControllerSnapshot => ({
       localState,
-      state: options.appStore.getState(),
+      state: getState(),
     }),
     handleKeyPress,
     openSettings,
+    refreshSelectedProvider,
     requestQuit,
     selectProvider,
+    setSelectedChoiceIndex,
+    setSelectedSettingsIndex,
     subscribe: (listener: (snapshot: TuiControllerSnapshot) => void): (() => void) => {
       listeners.add(listener);
 

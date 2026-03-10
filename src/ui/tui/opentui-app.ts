@@ -2,7 +2,9 @@ import {
   BoxRenderable,
   ScrollBoxRenderable,
   SelectRenderable,
+  SelectRenderableEvents,
   TabSelectRenderable,
+  TabSelectRenderableEvents,
   TextRenderable,
 } from "@opentui/core";
 import { createTuiViewModel } from "@/ui/tui/presenter.ts";
@@ -357,6 +359,13 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
 
     modalChoicesBox.visible = viewModel.modal.choices.length > 0;
     modalFooterText.content = viewModel.modal.footer;
+
+    if (viewModel.modal.focus === "choices" && viewModel.modal.choices.length > 0) {
+      modalChoices.focus();
+    } else if (viewModel.modal.focus === "items") {
+      modalItems.focus();
+    }
+
     options.renderer.requestRender();
   };
 
@@ -377,6 +386,31 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
       key.preventDefault();
       render();
     }
+  });
+
+  tabs.on(
+    TabSelectRenderableEvents.SELECTION_CHANGED,
+    (_index: number, option?: { value?: unknown }) => {
+      if (option?.value === "claude" || option?.value === "codex" || option?.value === "gemini") {
+        void options.controller.selectProvider(option.value);
+      }
+    },
+  );
+
+  modalItems.on(SelectRenderableEvents.SELECTION_CHANGED, (index: number) => {
+    options.controller.setSelectedSettingsIndex(index);
+  });
+
+  modalItems.on(SelectRenderableEvents.ITEM_SELECTED, () => {
+    void options.controller.activateSelectedSettingsItem();
+  });
+
+  modalChoices.on(SelectRenderableEvents.SELECTION_CHANGED, (index: number) => {
+    options.controller.setSelectedChoiceIndex(index);
+  });
+
+  modalChoices.on(SelectRenderableEvents.ITEM_SELECTED, () => {
+    void options.controller.applySelectedChoice();
   });
 
   render();
