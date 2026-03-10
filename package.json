@@ -17,6 +17,7 @@
     "typecheck": "tsgo --noEmit --project tsconfig.json",
     "e2e": "bun run e2e/host-integration.ts",
     "e2e:host": "bun run e2e/host-integration.ts",
+    "e2e:tui": "bun run e2e/tui-smoke.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage"
   },
