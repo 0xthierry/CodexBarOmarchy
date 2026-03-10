@@ -7,6 +7,7 @@ import { claudeCookieSources, claudeUsageSources } from "../src/core/providers/c
 import { codexCookieSources, codexUsageSources } from "../src/core/providers/codex.ts";
 import { createAppStore } from "../src/core/store/app-store.ts";
 import type { AppStoreState } from "../src/core/store/state.ts";
+import { getProviderSnapshotMetrics } from "../src/core/store/runtime-state.ts";
 import { createRuntimeProviderAdapters } from "../src/runtime/provider-adapters.ts";
 import { createRuntimeHost } from "../src/runtime/node-host.ts";
 
@@ -87,7 +88,7 @@ const assertExactStringArray = (
 
 const assertMetricShape = (
   providerId: ProviderId,
-  metrics: ProviderView["status"]["metrics"],
+  metrics: readonly ProviderView["status"]["usage"]["displayMetrics"][number][],
 ): void => {
   assert(metrics.length > 0, `${providerId}: expected at least one metric.`);
 
@@ -139,18 +140,20 @@ const assertSharedProviderView = (providerId: ProviderId, providerView: Provider
     `${providerId}: version must be null or a non-empty string.`,
   );
   assert(
-    providerView.status.accountEmail === null || providerView.status.accountEmail.trim() !== "",
+    providerView.status.identity.accountEmail === null ||
+      providerView.status.identity.accountEmail.trim() !== "",
     `${providerId}: accountEmail must be null or a non-empty string.`,
   );
   assert(
-    providerView.status.planLabel === null || providerView.status.planLabel.trim() !== "",
+    providerView.status.identity.planLabel === null ||
+      providerView.status.identity.planLabel.trim() !== "",
     `${providerId}: planLabel must be null or a non-empty string.`,
   );
   assert(
     providerView.status.latestError === null,
     `${providerId}: latestError should be null after a successful refresh.`,
   );
-  assertMetricShape(providerId, providerView.status.metrics);
+  assertMetricShape(providerId, getProviderSnapshotMetrics(providerView.status));
 
   assertActionState(providerId, providerView, "login", true);
   assertActionState(providerId, providerView, "refresh", true);
@@ -195,13 +198,18 @@ const assertCodexProviderView = (providerView: Extract<ProviderView, { id: "code
     "codex: manual cookie field visibility is inconsistent with config.",
   );
   assert(
-    providerView.status.accountEmail !== null,
+    providerView.status.identity.accountEmail !== null,
     "codex: accountEmail should be present for the UI.",
   );
-  assert(providerView.status.planLabel !== null, "codex: planLabel should be present for the UI.");
+  assert(
+    providerView.status.identity.planLabel !== null,
+    "codex: planLabel should be present for the UI.",
+  );
   assert(providerView.status.version !== null, "codex: version should be present for the UI.");
 
-  const metricLabels = new Set(providerView.status.metrics.map((metric) => metric.label));
+  const metricLabels = new Set(
+    getProviderSnapshotMetrics(providerView.status).map((metric) => metric.label),
+  );
 
   assert(
     metricLabels.has("Session") || metricLabels.has("Weekly") || metricLabels.has("Credits"),
@@ -235,14 +243,19 @@ const assertClaudeProviderView = (providerView: Extract<ProviderView, { id: "cla
     providerView.settings.tokenAccounts.length === providerView.config.tokenAccounts.length,
     "claude: token account count mismatch.",
   );
-  assert(providerView.status.planLabel !== null, "claude: planLabel should be present for the UI.");
+  assert(
+    providerView.status.identity.planLabel !== null,
+    "claude: planLabel should be present for the UI.",
+  );
   assert(providerView.status.version !== null, "claude: version should be present for the UI.");
 
-  const metricLabels = new Set(providerView.status.metrics.map((metric) => metric.label));
+  const metricLabels = new Set(
+    getProviderSnapshotMetrics(providerView.status).map((metric) => metric.label),
+  );
 
   if (providerView.status.sourceLabel === "cli") {
     assert(
-      providerView.status.accountEmail !== null,
+      providerView.status.identity.accountEmail !== null,
       "claude: cli source should expose accountEmail.",
     );
     assert(
@@ -258,7 +271,7 @@ const assertClaudeProviderView = (providerView: Extract<ProviderView, { id: "cla
 
   if (providerView.status.sourceLabel === "oauth" || providerView.status.sourceLabel === "cli") {
     assert(
-      providerView.status.accountEmail !== null,
+      providerView.status.identity.accountEmail !== null,
       `claude: ${providerView.status.sourceLabel} should expose accountEmail.`,
     );
   }
@@ -280,13 +293,18 @@ const assertGeminiProviderView = (providerView: Extract<ProviderView, { id: "gem
     "gemini: expected no provider-specific settings.",
   );
   assert(
-    providerView.status.accountEmail !== null,
+    providerView.status.identity.accountEmail !== null,
     "gemini: accountEmail should be present for the UI.",
   );
-  assert(providerView.status.planLabel !== null, "gemini: planLabel should be present for the UI.");
+  assert(
+    providerView.status.identity.planLabel !== null,
+    "gemini: planLabel should be present for the UI.",
+  );
   assert(providerView.status.version !== null, "gemini: version should be present for the UI.");
 
-  const metricLabels = providerView.status.metrics.map((metric) => metric.label);
+  const metricLabels = getProviderSnapshotMetrics(providerView.status).map(
+    (metric) => metric.label,
+  );
   const uniqueMetricLabels = new Set(metricLabels);
 
   assert(
