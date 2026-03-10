@@ -1,0 +1,4 @@
+interface:
+  display_name: "TUI Testing"
+  short_description: "Validate terminal UIs with PTY and non-TTY checks."
+  default_prompt: "Use this skill to validate a terminal UI by comparing non-TTY snapshot behavior with a real PTY-driven manual pass, while handling persistent config safely."

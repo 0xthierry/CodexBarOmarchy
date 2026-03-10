@@ -656,9 +656,9 @@ const parseCodexCliSnapshot = (
   const creditBalance =
     typeof rateLimits?.credits?.balance === "number"
       ? rateLimits.credits.balance
-      : typeof rateLimits?.credits?.balance === "string"
+      : (typeof rateLimits?.credits?.balance === "string"
         ? Number(rateLimits.credits.balance)
-        : NaN;
+        : NaN);
 
   if (typeof primaryPercent === "number") {
     metrics.push({
