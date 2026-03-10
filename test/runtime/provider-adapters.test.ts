@@ -1517,12 +1517,12 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
     {
       detail: "tomorrow",
       label: "Pro",
-      value: "72%",
+      value: "28%",
     },
     {
       detail: "later",
       label: "Flash",
-      value: "41%",
+      value: "59%",
     },
   ]);
   expect(persistedCredentials["access_token"]).toBe("gemini-new-access-token");

@@ -58,6 +58,9 @@ interface GeminiCodeAssistStatus {
   tier: GeminiTier;
 }
 
+const convertRemainingFractionToUsedFraction = (remainingFraction: number): number =>
+  Math.max(0, Math.min(1, 1 - remainingFraction));
+
 const resolveGeminiSettingsPath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".gemini", "settings.json");
 
@@ -382,13 +385,15 @@ const parseGeminiQuotaSnapshot = (
       continue;
     }
 
+    const usedFraction = convertRemainingFractionToUsedFraction(bucket.remainingFraction);
+
     if (bucket.modelId.toLowerCase().includes("pro")) {
       const existingMetric = metricsByLabel.get("Pro");
 
-      if (existingMetric === undefined || bucket.remainingFraction < existingMetric.value) {
+      if (existingMetric === undefined || usedFraction > existingMetric.value) {
         metricsByLabel.set("Pro", {
           detail: bucket.resetTime,
-          value: bucket.remainingFraction,
+          value: usedFraction,
         });
       }
     }
@@ -396,10 +401,10 @@ const parseGeminiQuotaSnapshot = (
     if (bucket.modelId.toLowerCase().includes("flash")) {
       const existingMetric = metricsByLabel.get("Flash");
 
-      if (existingMetric === undefined || bucket.remainingFraction < existingMetric.value) {
+      if (existingMetric === undefined || usedFraction > existingMetric.value) {
         metricsByLabel.set("Flash", {
           detail: bucket.resetTime,
-          value: bucket.remainingFraction,
+          value: usedFraction,
         });
       }
     }
