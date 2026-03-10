@@ -49,6 +49,7 @@ type TuiModalFocus = "choices" | "editor" | "items";
 
 interface TuiLocalState {
   footerMessage: string | null;
+  focusedProviderId: ProviderId | null;
   isSettingsOpen: boolean;
   modalFocus: TuiModalFocus;
   quitRequested: boolean;

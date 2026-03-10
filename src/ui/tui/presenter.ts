@@ -178,9 +178,10 @@ const formatUpdatedDisplay = (value: string | null): string => {
   return formatMonthDayTime(parsed);
 };
 
-const getSelectedProvider = (state: AppStoreState): ProviderView => {
+const getSelectedProvider = (state: AppStoreState, localState: TuiLocalState): ProviderView => {
+  const focusedProviderId = localState.focusedProviderId ?? state.selectedProviderId;
   const selectedProvider = state.providerViews.find(
-    (providerView) => providerView.id === state.selectedProviderId,
+    (providerView) => providerView.id === focusedProviderId,
   );
 
   if (selectedProvider !== undefined) {
@@ -196,12 +197,12 @@ const getSelectedProvider = (state: AppStoreState): ProviderView => {
   return fallbackProvider;
 };
 
-const createTabs = (state: AppStoreState): TuiTabViewModel[] =>
+const createTabs = (state: AppStoreState, localState: TuiLocalState): TuiTabViewModel[] =>
   state.providerViews.map((providerView) => ({
     enabled: providerView.enabled,
     id: providerView.id,
     label: providerView.enabled ? providerView.id : `${providerView.id} off`,
-    selected: providerView.id === state.selectedProviderId,
+    selected: providerView.id === (localState.focusedProviderId ?? state.selectedProviderId),
   }));
 
 const createHeaderLines = (providerView: ProviderView): string[] => {
@@ -396,7 +397,7 @@ const createFooter = (state: AppStoreState, localState: TuiLocalState): string =
     return localState.footerMessage;
   }
 
-  const selectedProvider = getSelectedProvider(state);
+  const selectedProvider = getSelectedProvider(state, localState);
 
   if (selectedProvider.actions.refresh.status === "running") {
     return `Refreshing ${selectedProvider.id}...`;
@@ -410,7 +411,7 @@ const createFooter = (state: AppStoreState, localState: TuiLocalState): string =
 };
 
 const createTuiViewModel = (state: AppStoreState, localState: TuiLocalState): TuiViewModel => {
-  const selectedProvider = getSelectedProvider(state);
+  const selectedProvider = getSelectedProvider(state, localState);
 
   return {
     configLines: createConfigLines(selectedProvider),
@@ -419,7 +420,7 @@ const createTuiViewModel = (state: AppStoreState, localState: TuiLocalState): Tu
     headerLines: createHeaderLines(selectedProvider),
     menuLines: createMenuLines(selectedProvider.id),
     modal: localState.isSettingsOpen ? createModalViewModel(selectedProvider, localState) : null,
-    tabs: createTabs(state),
+    tabs: createTabs(state, localState),
     title: appTitle,
     usageLines: createUsageLines(selectedProvider),
   };

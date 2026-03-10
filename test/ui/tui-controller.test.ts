@@ -80,6 +80,24 @@ test("opens and closes the settings modal", async () => {
   expect(controller.getSnapshot().localState.isSettingsOpen).toBe(false);
 });
 
+test("suppresses provider-switch shortcuts while the settings modal is open", async () => {
+  const appStore = await createInitializedAppStore();
+  const controller = createTuiController({ appStore });
+
+  controller.openSettings();
+  controller.handleKeyPress({
+    ctrl: false,
+    meta: false,
+    name: "2",
+    sequence: "2",
+    shift: false,
+  });
+  await flush();
+
+  expect(controller.getSnapshot().state.selectedProviderId).toBe("codex");
+  expect(controller.getSnapshot().localState.focusedProviderId).toBe("codex");
+});
+
 test("refresh stays non-blocking while provider selection changes", async () => {
   let resolveRefresh!: () => void;
   const refreshReady = new Promise<void>((resolve) => {

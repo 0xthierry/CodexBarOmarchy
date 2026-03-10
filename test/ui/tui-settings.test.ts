@@ -34,11 +34,12 @@ const flush = async (): Promise<void> => {
 const getSelectedProviderView = (
   controller: ReturnType<typeof createTuiController>,
 ): ProviderView => {
+  const focusedProviderId =
+    controller.getSnapshot().localState.focusedProviderId ??
+    controller.getSnapshot().state.selectedProviderId;
   const selectedProvider = controller
     .getSnapshot()
-    .state.providerViews.find(
-      (providerView) => providerView.id === controller.getSnapshot().state.selectedProviderId,
-    );
+    .state.providerViews.find((providerView) => providerView.id === focusedProviderId);
 
   if (selectedProvider === undefined) {
     throw new Error("Expected a selected provider view.");
@@ -185,4 +186,23 @@ test("persists Gemini enablement changes from the settings modal", async () => {
   expect(appStore.getState().config.providers.gemini.enabled).toBe(false);
   expect(configStore.savedConfigs.at(-1)?.providers.gemini.enabled).toBe(false);
   expect(appStore.getState().selectedProviderId).toBe("codex");
+});
+
+test("keeps a disabled provider reachable so it can be re-enabled", async () => {
+  const { appStore, controller } = await createInitializedController();
+
+  await selectProvider(controller, "gemini");
+  controller.setSelectedSettingsIndex(findSettingsIndex(controller, "shared:enabled"));
+  await controller.activateSelectedSettingsItem();
+
+  expect(appStore.getState().config.providers.gemini.enabled).toBe(false);
+  expect(controller.getSnapshot().localState.focusedProviderId).toBe("gemini");
+
+  await controller.selectProvider("gemini");
+  controller.openSettings();
+  controller.setSelectedSettingsIndex(findSettingsIndex(controller, "shared:enabled"));
+  await controller.activateSelectedSettingsItem();
+
+  expect(appStore.getState().config.providers.gemini.enabled).toBe(true);
+  expect(appStore.getState().selectedProviderId).toBe("gemini");
 });

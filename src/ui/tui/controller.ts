@@ -38,6 +38,7 @@ interface CreateTuiControllerOptions {
 }
 
 const createInitialLocalState = (): TuiLocalState => ({
+  focusedProviderId: null,
   footerMessage: null,
   isSettingsOpen: false,
   modalFocus: "items",
@@ -83,13 +84,17 @@ const normalizeClaudeCookieSource = (value: string): "auto" | "manual" =>
   value === "manual" ? value : "auto";
 
 const createTuiController = (options: CreateTuiControllerOptions): TuiController => {
-  let localState = createInitialLocalState();
+  let localState: TuiLocalState = {
+    ...createInitialLocalState(),
+    focusedProviderId: options.appStore.getState().selectedProviderId,
+  };
   const listeners = new Set<(snapshot: TuiControllerSnapshot) => void>();
   const getState = (): AppStoreState => options.appStore.getState();
 
-  const getSelectedProvider = (): ProviderView => {
+  const getFocusedProvider = (): ProviderView => {
+    const focusedProviderId = localState.focusedProviderId ?? getState().selectedProviderId;
     const selectedProvider = getState().providerViews.find(
-      (providerView) => providerView.id === getState().selectedProviderId,
+      (providerView) => providerView.id === focusedProviderId,
     );
 
     if (selectedProvider !== undefined) {
@@ -106,7 +111,7 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   };
 
   const getSelectedSettingsItems = (): TuiSettingsItemDescriptor[] =>
-    getSettingsItems(getSelectedProvider());
+    getSettingsItems(getFocusedProvider());
 
   const getSelectedSettingsItem = (): TuiSettingsItemDescriptor | null => {
     const selectedSettingsItems = getSelectedSettingsItems();
@@ -150,6 +155,7 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
 
     localState = {
       ...localState,
+      focusedProviderId: getFocusedProvider().id,
       selectedChoiceIndex,
       selectedSettingsIndex,
     };
@@ -185,12 +191,40 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     }
   };
 
-  const selectProvider = async (providerId: ProviderId): Promise<void> =>
-    runStoreMutation(() => options.appStore.selectProvider(providerId), `Selected ${providerId}.`);
+  const selectProvider = async (providerId: ProviderId): Promise<void> => {
+    const providerView = getState().providerViews.find(
+      (candidateProviderView) => candidateProviderView.id === providerId,
+    );
+
+    if (providerView !== undefined && !providerView.enabled) {
+      setLocalState({
+        ...localState,
+        focusedProviderId: providerId,
+      });
+      syncChoiceIndex();
+      setFooterMessage(`Viewing disabled ${providerId}. Open settings to re-enable it.`);
+      emit();
+      return;
+    }
+
+    try {
+      await options.appStore.selectProvider(providerId);
+      setLocalState({
+        ...localState,
+        focusedProviderId: getState().selectedProviderId,
+      });
+      syncChoiceIndex();
+      setFooterMessage(`Selected ${getState().selectedProviderId}.`);
+      emit();
+    } catch (error) {
+      setFooterMessage(error instanceof Error ? error.message : String(error));
+      emit();
+    }
+  };
 
   const selectProviderByOffset = async (offset: -1 | 1): Promise<void> => {
     const providerIds = getState().providerViews.map((providerView) => providerView.id);
-    const currentIndex = providerIds.indexOf(getState().selectedProviderId);
+    const currentIndex = providerIds.indexOf(getFocusedProvider().id);
     const nextIndex = (currentIndex + offset + providerIds.length) % providerIds.length;
     const nextProviderId = providerIds[nextIndex];
 
@@ -247,6 +281,7 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   const openSettings = (): void => {
     setLocalState({
       ...localState,
+      focusedProviderId: getFocusedProvider().id,
       footerMessage: null,
       isSettingsOpen: true,
       modalFocus: "items",
@@ -276,7 +311,13 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   };
 
   const refreshSelectedProvider = async (): Promise<void> => {
-    const providerId = getState().selectedProviderId;
+    const providerId = getFocusedProvider().id;
+
+    if (!getFocusedProvider().enabled) {
+      setFooterMessage(`Enable ${providerId} before refreshing it.`);
+      emit();
+      return;
+    }
 
     setFooterMessage(`Refreshing ${providerId}...`);
     emit();
@@ -293,19 +334,33 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   };
 
   const updateCurrentProviderEnabled = async (enabled: boolean): Promise<void> => {
-    const providerId = getSelectedProvider().id;
+    const providerId = getFocusedProvider().id;
 
-    await runStoreMutation(
-      () => options.appStore.setProviderEnabled(providerId, enabled),
-      `${enabled ? "Enabled" : "Disabled"} ${providerId}.`,
-    );
+    try {
+      await options.appStore.setProviderEnabled(providerId, enabled);
+
+      if (enabled) {
+        await options.appStore.selectProvider(providerId);
+      }
+
+      setLocalState({
+        ...localState,
+        focusedProviderId: providerId,
+      });
+      syncChoiceIndex();
+      setFooterMessage(`${enabled ? "Enabled" : "Disabled"} ${providerId}.`);
+      emit();
+    } catch (error) {
+      setFooterMessage(error instanceof Error ? error.message : String(error));
+      emit();
+    }
   };
 
   const updateSelectedChoice = async (
     item: TuiSettingsItemDescriptor,
     choice: TuiSettingsChoice,
   ): Promise<void> => {
-    const providerId = getSelectedProvider().id;
+    const providerId = getFocusedProvider().id;
 
     if (item.id === "shared:enabled") {
       await updateCurrentProviderEnabled(choice.value === "on");
@@ -418,7 +473,7 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   };
 
   const removeActiveClaudeTokenAccount = async (): Promise<void> => {
-    const providerView = getSelectedProvider();
+    const providerView = getFocusedProvider();
 
     if (providerView.id !== "claude" || providerView.settings.tokenAccounts.length === 0) {
       return;
@@ -690,6 +745,16 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     }
 
     if (localState.isSettingsOpen) {
+      if (
+        isDigitShortcut(key) ||
+        key.name === "h" ||
+        key.name === "l" ||
+        key.name === "left" ||
+        key.name === "right"
+      ) {
+        return true;
+      }
+
       if (key.name === "escape") {
         closeSettings();
         return true;

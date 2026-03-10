@@ -11,6 +11,7 @@ const runProductionTui = async (): Promise<void> => {
 
   try {
     await runtime.start();
+    await runtime.appStore.refreshEnabledProviders();
     const controller = createTuiController({
       appStore: runtime.appStore,
     });
