@@ -7,6 +7,7 @@
     "build": "bun run typecheck",
     "spike:omarchy-look": "bun run spike/omarchy-native-look-and-feel.ts",
     "spike:omarchy-look:open": "bash spike/open-omarchy-look.sh",
+    "stats": "bun run src/cli/stats.ts",
     "tui": "bun run src/ui/tui/main.ts",
     "format": "oxfmt --write src",
     "format:fix": "oxfmt --write",
