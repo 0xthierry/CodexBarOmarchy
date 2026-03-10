@@ -38,7 +38,7 @@ test("renders a deterministic plain-text snapshot for non-tty output", () => {
     ),
   );
 
-  expect(snapshot).toContain("omarchy-agent-bar");
+  expect(snapshot).toContain("agent-stats");
   expect(snapshot).toContain("usage");
   expect(snapshot).toContain("details");
   expect(snapshot).toContain("config");

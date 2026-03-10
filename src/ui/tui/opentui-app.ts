@@ -36,7 +36,7 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
     borderColor: options.theme.color5,
     flexDirection: "column",
     height: 6,
-    title: "omarchy-agent-bar",
+    title: "agent-stats",
     width: "100%",
   });
   const tabs = new TabSelectRenderable(options.renderer, {

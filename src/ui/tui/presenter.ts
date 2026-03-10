@@ -8,7 +8,7 @@ import type {
 import type { TuiModalViewModel, TuiTabViewModel, TuiViewModel } from "@/ui/tui/types.ts";
 import type { AppStoreState } from "@/core/store/state.ts";
 
-const appTitle = "omarchy-agent-bar";
+const appTitle = "agent-stats";
 
 const formatTimestamp = (value: Date): string =>
   value.toLocaleTimeString("en-GB", {

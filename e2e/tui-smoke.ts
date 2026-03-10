@@ -159,7 +159,7 @@ const main = async (): Promise<void> => {
       createTuiViewModel(controller.getSnapshot().state, controller.getSnapshot().localState),
     );
 
-    assert(shellSnapshot.includes("omarchy-agent-bar"), "expected the TUI title in the snapshot");
+    assert(shellSnapshot.includes("agent-stats"), "expected the TUI title in the snapshot");
     assert(
       shellSnapshot.includes("[claude]"),
       "expected the selected provider tab in the snapshot",
