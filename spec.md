@@ -1,6 +1,6 @@
 # Omarchy Agent Bar Spec
 
-Date: 2026-03-08
+Date: 2026-03-09
 
 ## Purpose
 
@@ -14,7 +14,7 @@ Current scope for this document:
 - focus on:
   - what the UI must show
   - how provider auto-detection works
-  - what options/actions are available in each provider screen
+  - what options/actions are available in each provider view and settings modal
   - how provider data is collected
   - how config is persisted in a file while remaining editable from the UI
 
@@ -36,7 +36,7 @@ Verified facts:
 Implications for this app:
 
 - one tray icon integrated into Waybar's tray area
-- one popup/panel opened from that tray icon
+- one floating terminal TUI opened or focused from that tray icon
 - file-backed config under `~/.config`
 
 ## 2. Product Definition
@@ -50,9 +50,28 @@ The app is a compact Omarchy tray utility for:
 Primary UX:
 
 - one tray icon in the Omarchy Waybar tray
-- one popup window/panel opened from that tray icon
-- a provider switcher at the top of the popup when more than one provider is enabled
-- one provider card view at a time
+- tray click should open or focus one floating terminal TUI window
+- the tray shell should stay separate from the TUI surface
+- a provider switcher should appear in the TUI header when more than one provider is enabled
+- one provider-focused TUI view at a time
+- the surface should be dense, monospaced, keyboard-first, and theme-driven rather than a generic GUI popup
+
+### Why The Product Direction Is TUI
+
+The reason is product fit, not just implementation convenience:
+
+- Omarchy tools commonly launch terminal-hosted TUIs rather than bespoke GUI popups
+- a TUI fits Omarchy's square, sharp, monospaced visual language better than a faux menu-bar popup
+- the tray icon should stay a small launcher/focus seam, while the richer provider UX lives in a dedicated surface
+- CodexBar's stable information hierarchy matters more than reproducing macOS popup chrome
+
+Current product decision:
+
+- tray click -> open or focus floating terminal TUI
+- preserve CodexBar's information hierarchy
+- adapt that hierarchy to terminal-native primitives and keyboardable interactions
+
+This spec adopts the TUI as the product contract. Implementation details may evolve as long as they preserve the same interaction model and information hierarchy.
 
 Provider defaults for this version:
 
@@ -67,7 +86,7 @@ Evidence:
 
 This is the required default behavior for our app, not just a recommendation.
 
-## 3. Shared UI Contract Derived From CodexBar
+## 3. Shared TUI Contract Derived From CodexBar
 
 CodexBar's provider detail/settings screen is built from:
 
@@ -87,11 +106,39 @@ Evidence:
 - picker/toggle/field row behavior: `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderSettingsRows.swift:36-201`
 - token-account row actions: `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderSettingsRows.swift:203-281`
 
-Our app should preserve that information hierarchy, but adapt it to Linux UI primitives.
+Our app should preserve that information hierarchy, but adapt it to a terminal-native Omarchy surface rather than a GUI popup.
 
-### Shared screen-level actions for every provider
+The stable hierarchy worth preserving is:
 
-Every provider screen in our app must support:
+- provider tabs / switcher
+- provider title + subtitle + plan/status summary
+- usage metrics
+- optional extra-usage / credits / cost blocks
+- account and provider details
+- provider settings
+- provider options
+- bottom app actions such as dashboard, status, settings, about, quit
+
+The canonical TUI mapping for our app is:
+
+- header box for provider tabs + provider identity
+- left usage box for metrics plus spend/credits blocks
+- right details/config column for account rows and provider config summary
+- bottom menu box for provider actions and app-level actions
+- a settings modal opened inside the TUI for editable provider settings and options
+
+Shared interaction rules:
+
+- the TUI should be fully usable from the keyboard without requiring a mouse
+- provider switching should be exposed both through the visible tab control and direct keyboard actions
+- the bottom menu should surface the main provider actions and app-level actions explicitly
+- settings/options editing may move out of the main body into a modal, but the same underlying config surface must remain available
+
+This mapping is the intended product direction.
+
+### Shared provider-view actions for every provider
+
+Every provider view in our app must support:
 
 - enable/disable provider
 - refresh provider now
@@ -139,7 +186,7 @@ Interpretation rule:
 
 - the provider sections below document both:
   - researched CodexBar behavior
-  - the exact provider-screen contract we want in the Omarchy app
+  - the exact provider-view contract we want in the Omarchy app
 - when something is marked optional or deferred, it is not part of Phase 1
 
 ### 5.1 Codex
@@ -150,7 +197,7 @@ Verified:
 
 - labels are `Session` and `Weekly`; Codex supports credits
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Codex/CodexProviderDescriptor.swift:10-39`
-- Codex provider screen exposes:
+- Codex provider view exposes:
   - `Usage source` picker
   - `OpenAI cookies` picker
   - secure manual `Cookie: …` field when cookie mode is manual
@@ -161,9 +208,9 @@ Verified:
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Codex/CodexProviderImplementation.swift:194-198`
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Codex/CodexLoginFlow.swift:4-16`
 
-#### Codex screen contract for our app
+#### Codex view contract for our app
 
-The Codex provider screen must allow the user to:
+The Codex provider view and settings modal must allow the user to:
 
 - enable/disable Codex
 - refresh Codex
@@ -184,7 +231,7 @@ The Codex provider screen must allow the user to:
 Notes:
 
 - `OpenAI cookies` picker is only visible when `OpenAI web extras` is enabled in CodexBar. Preserve that dependency.
-- `OpenAI web extras` are optional in implementation, but the config surface still belongs in the spec because the user asked to map all options/actions in the provider screen.
+- `OpenAI web extras` are optional in implementation, but the config surface still belongs in the spec because the user asked to map all options/actions in the provider view.
 
 #### How Codex source selection works
 
@@ -229,7 +276,7 @@ Verified:
 
 - labels are `Session`, `Weekly`, and `Sonnet`
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Claude/ClaudeProviderDescriptor.swift:10-42`
-- Claude provider screen exposes:
+- Claude provider view exposes:
   - `Usage source` picker
   - `Keychain prompt policy` picker when applicable
   - `Claude cookies` picker
@@ -248,9 +295,9 @@ Verified:
 - Claude may expose a provider-specific recovery action `Open Terminal` when OAuth is failing
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Claude/ClaudeProviderImplementation.swift:216-235`
 
-#### Claude screen contract for our app
+#### Claude view contract for our app
 
-The Claude provider screen must allow the user to:
+The Claude provider view and settings modal must allow the user to:
 
 - enable/disable Claude
 - refresh Claude
@@ -276,7 +323,7 @@ The Claude provider screen must allow the user to:
 Linux note:
 
 - Claude prompt-policy and secret-storage behavior are deferred for now.
-- Phase 1 should not expose prompt-policy controls in the canonical Linux config or provider screen until we decide the Linux secret-storage contract.
+- Phase 1 should not expose prompt-policy controls in the canonical Linux config or provider view until we decide the Linux secret-storage contract.
 
 #### How Claude source selection works
 
@@ -297,7 +344,7 @@ Verified:
 Omarchy app contract:
 
 - app auto-order must be `OAuth -> CLI -> Web`
-- token-account/session-token mode must remain available from the provider screen because it is part of the current Claude settings surface
+- token-account/session-token mode must remain available from the provider view because it is part of the current Claude settings surface
 
 #### How Claude data is collected
 
@@ -320,16 +367,16 @@ Verified:
 
 - labels are `Pro` and `Flash`
   - `.repositories/CodexBar/Sources/CodexBarCore/Providers/Gemini/GeminiProviderDescriptor.swift:10-40`
-- Gemini provider screen has no provider-specific settings rows in CodexBar
+- Gemini provider view has no provider-specific settings rows in CodexBar
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Gemini/GeminiProviderImplementation.swift:5-14`
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Shared/ProviderImplementation.swift:122-132`
 - Gemini still supports provider login flow
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Gemini/GeminiProviderImplementation.swift:10-13`
   - `.repositories/CodexBar/Sources/CodexBar/Providers/Gemini/GeminiLoginFlow.swift:4-18`
 
-#### Gemini screen contract for our app
+#### Gemini view contract for our app
 
-The Gemini provider screen must allow the user to:
+The Gemini provider view must allow the user to:
 
 - enable/disable Gemini
 - refresh Gemini
@@ -390,7 +437,7 @@ Verified CodexBar behavior:
 Omarchy app contract:
 
 - persist config in a file
-- all provider screen changes must update in-memory state immediately and then persist to disk
+- all provider view and settings modal changes must update in-memory state immediately and then persist to disk
 - file location for our app should be:
   - `~/.config/omarchy-agent-bar/config.json`
 - file permissions should be `0600`
@@ -436,7 +483,7 @@ Notes:
 - This is the Omarchy-app schema proposal, not a literal CodexBar schema.
 - It is intentionally narrower than CodexBar's generic multi-provider config.
 
-## 7. Provider-Screen Option Matrix
+## 7. Provider-View Option Matrix
 
 ### Codex
 
@@ -487,11 +534,15 @@ Notes:
 When implementation starts, the first useful slice should provide:
 
 - one Omarchy tray icon
-- popup with provider switcher for `codex`, `claude`, `gemini`
+- tray click that opens or focuses a floating terminal TUI
+- TUI header with provider switcher for `codex`, `claude`, `gemini`
+- TUI layout with header, usage pane, details/config pane, and bottom action menu
+- keyboard-first navigation and a settings modal for provider configuration
 - initial auto-detection for those three CLIs with the same logic CodexBar uses
-- provider screens with the exact options/actions listed in section 7
+- provider views and settings modal with the exact options/actions listed in section 7
 - file-backed persisted config at `~/.config/omarchy-agent-bar/config.json`
 - immediate UI-driven config mutation with automatic file persistence
+- active Omarchy theme colors applied to the TUI rather than a custom standalone theme
 - working collectors for:
   - Codex OAuth or CLI
   - Claude OAuth, CLI, and optional web fallback contract
@@ -512,11 +563,11 @@ Deferred:
 
 ### AC-01 Must
 
-The app must run as a tray-resident app compatible with Omarchy's Waybar tray model.
+The app must run as a tray-resident app compatible with Omarchy's Waybar tray model, and tray activation must open or focus the floating terminal TUI.
 
 Validation:
 
-- Manual: launch in an Omarchy session and verify the icon appears in Waybar's tray area or tray expander.
+- Manual: launch in an Omarchy session, verify the icon appears in Waybar's tray area or tray expander, and verify tray activation opens or focuses the TUI window.
 
 ### AC-02 Must
 
@@ -535,7 +586,7 @@ Validation:
 
 ### AC-03 Must
 
-The popup must show only enabled providers from the supported set (`codex`, `claude`, `gemini`) in persisted order, and it must remember the last selected provider.
+The TUI header must show only enabled providers from the supported set (`codex`, `claude`, `gemini`) in persisted order, and it must remember the last selected provider.
 
 Validation:
 
@@ -543,7 +594,7 @@ Validation:
 
 ### AC-04 Must
 
-Each provider screen must expose the shared fields:
+Each provider view in the TUI must expose the shared fields:
 
 - state
 - source
@@ -561,20 +612,20 @@ Validation:
 
 ### AC-05 Must
 
-Each provider screen must expose the provider-specific options/actions defined in section 7.
+Each provider view or settings modal must expose the provider-specific options/actions defined in section 7.
 
 Validation:
 
-- Automated: provider-screen model tests for visible controls.
-- Manual: inspect each provider screen and verify all listed controls exist.
+- Automated: provider-view model tests for visible controls.
+- Manual: inspect each provider view/settings modal and verify all listed controls exist.
 
 ### AC-06 Must
 
-Config must be persisted in a file and remain user-editable through the UI.
+Config must be persisted in a file and remain user-editable through the TUI.
 
 This means:
 
-- user changes in the provider screens update runtime state immediately
+- user changes in the provider views/settings modal update runtime state immediately
 - the updated config is saved automatically to disk
 - the config file survives restart
 
@@ -603,16 +654,16 @@ Refresh must support both:
 - periodic background refresh
 - manual/user-initiated refresh
 
-The popup must remain responsive during refresh.
+The TUI must remain responsive during refresh.
 
 Validation:
 
 - Automated: store refresh-state tests.
-- Manual: open the popup while a slow provider refresh is running.
+- Manual: open the TUI while a slow provider refresh is running.
 
 ## 10. Source Index
 
-### Shared/provider-screen references
+### Shared/provider-view references
 
 - provider detail layout:
   - `.repositories/CodexBar/Sources/CodexBar/PreferencesProviderDetailView.swift:45-101`
