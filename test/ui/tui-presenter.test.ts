@@ -3,7 +3,7 @@ import { createDefaultConfig } from "@/core/config/schema.ts";
 import { createAppStoreState } from "@/core/store/state.ts";
 import { createDefaultProviderRuntimeStateMap } from "@/core/store/runtime-state.ts";
 import { createInitialLocalState } from "@/ui/tui/controller.ts";
-import { createTuiViewModel } from "@/ui/tui/presenter.ts";
+import { createTuiViewModel, formatHeaderClockDisplay } from "@/ui/tui/presenter.ts";
 
 test("derives provider tabs in config order and focuses the selected provider", () => {
   const defaultConfig = createDefaultConfig();
@@ -35,6 +35,7 @@ test("derives provider tabs in config order and focuses the selected provider", 
 test("renders the required shell sections for the selected provider", () => {
   const config = createDefaultConfig();
   const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+  const currentTime = new Date("2026-03-10T15:45:12.000Z");
 
   runtimeStateMap.codex.snapshot = {
     accountEmail: "codex@example.com",
@@ -56,11 +57,14 @@ test("renders the required shell sections for the selected provider", () => {
   const viewModel = createTuiViewModel(
     createAppStoreState(config, runtimeStateMap),
     createInitialLocalState(),
+    currentTime,
   );
 
   expect(viewModel.headerLines[0]).toContain("CODEX");
+  expect(viewModel.headerLines[1]).toContain(formatHeaderClockDisplay(currentTime));
   expect(viewModel.usageLines.join("\n")).toContain("Session");
   expect(viewModel.detailsLines.join("\n")).toContain("account");
+  expect(viewModel.detailsLines.join("\n")).toContain("updated");
   expect(viewModel.configLines.join("\n")).toContain("Usage");
   expect(viewModel.menuLines.join("\n")).toContain("settings");
 });

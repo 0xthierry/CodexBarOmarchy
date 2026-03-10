@@ -178,6 +178,8 @@ const formatUpdatedDisplay = (value: string | null): string => {
   return formatMonthDayTime(parsed);
 };
 
+const formatHeaderClockDisplay = (value: Date): string => `Today ${formatTimestamp(value)}`;
+
 const getSelectedProvider = (state: AppStoreState, localState: TuiLocalState): ProviderView => {
   const focusedProviderId = localState.focusedProviderId ?? state.selectedProviderId;
   const selectedProvider = state.providerViews.find(
@@ -205,9 +207,9 @@ const createTabs = (state: AppStoreState, localState: TuiLocalState): TuiTabView
     selected: providerView.id === (localState.focusedProviderId ?? state.selectedProviderId),
   }));
 
-const createHeaderLines = (providerView: ProviderView): string[] => {
+const createHeaderLines = (providerView: ProviderView, now: Date): string[] => {
   const summaryParts = [
-    formatUpdatedDisplay(providerView.status.updatedAt),
+    formatHeaderClockDisplay(now),
     humanizeValue(providerView.status.planLabel ?? "unknown"),
     humanizeValue(providerView.status.state),
   ];
@@ -410,14 +412,18 @@ const createFooter = (state: AppStoreState, localState: TuiLocalState): string =
   return "Keyboard-first runtime view over the headless app store.";
 };
 
-const createTuiViewModel = (state: AppStoreState, localState: TuiLocalState): TuiViewModel => {
+const createTuiViewModel = (
+  state: AppStoreState,
+  localState: TuiLocalState,
+  now: Date = new Date(),
+): TuiViewModel => {
   const selectedProvider = getSelectedProvider(state, localState);
 
   return {
     configLines: createConfigLines(selectedProvider),
     detailsLines: createDetailsLines(selectedProvider),
     footer: createFooter(state, localState),
-    headerLines: createHeaderLines(selectedProvider),
+    headerLines: createHeaderLines(selectedProvider, now),
     menuLines: createMenuLines(selectedProvider.id),
     modal: localState.isSettingsOpen ? createModalViewModel(selectedProvider, localState) : null,
     tabs: createTabs(state, localState),
@@ -426,4 +432,11 @@ const createTuiViewModel = (state: AppStoreState, localState: TuiLocalState): Tu
   };
 };
 
-export { createTuiViewModel, formatUpdatedDisplay, humanizeValue, parseIsoDate, truncate };
+export {
+  createTuiViewModel,
+  formatHeaderClockDisplay,
+  formatUpdatedDisplay,
+  humanizeValue,
+  parseIsoDate,
+  truncate,
+};

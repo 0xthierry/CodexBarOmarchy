@@ -22,6 +22,8 @@ interface MountOpenTuiAppOptions {
   theme: OmarchyTheme;
 }
 
+const liveClockRefreshIntervalMs = 1000;
+
 const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
   const shell = new BoxRenderable(options.renderer, {
     backgroundColor: options.theme.background,
@@ -372,6 +374,9 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
   const unsubscribe = options.controller.subscribe(() => {
     render();
   });
+  const clockInterval = setInterval(() => {
+    render();
+  }, liveClockRefreshIntervalMs);
 
   options.renderer.keyInput.on("keypress", (key) => {
     const wasHandled = options.controller.handleKeyPress({
@@ -418,6 +423,7 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
 
   return {
     destroy: (): void => {
+      clearInterval(clockInterval);
       unsubscribe();
       shell.destroyRecursively();
     },
