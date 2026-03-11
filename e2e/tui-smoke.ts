@@ -60,6 +60,7 @@ const createSmokeProviderAdapters = () => ({
             planLabel: "Max",
           },
           latestError: null,
+          providerDetails: null,
           serviceStatus: null,
           sourceLabel: "web",
           state: "ready",
@@ -69,20 +70,20 @@ const createSmokeProviderAdapters = () => ({
             balances: {
               credits: null,
             },
-            displayMetrics: [
-              {
-                detail: null,
-                label: "Session",
-                value: "72%",
-              },
-              {
-                detail: null,
-                label: "Sonnet",
-                value: "41%",
-              },
-            ],
             providerCost: null,
             quotaBuckets: [],
+            rateWindows: [
+              {
+                label: "Session",
+                resetAt: null,
+                usedPercent: 72,
+              },
+              {
+                label: "Sonnet",
+                resetAt: null,
+                usedPercent: 41,
+              },
+            ],
             windows: {
               flash: null,
               pro: null,
@@ -119,6 +120,7 @@ const createSmokeProviderAdapters = () => ({
             planLabel: "OAuth",
           },
           latestError: null,
+          providerDetails: null,
           serviceStatus: null,
           sourceLabel: "oauth",
           state: "ready",
@@ -128,20 +130,20 @@ const createSmokeProviderAdapters = () => ({
             balances: {
               credits: null,
             },
-            displayMetrics: [
-              {
-                detail: null,
-                label: "Session",
-                value: "58%",
-              },
-              {
-                detail: null,
-                label: "Weekly",
-                value: "81%",
-              },
-            ],
             providerCost: null,
             quotaBuckets: [],
+            rateWindows: [
+              {
+                label: "Session",
+                resetAt: null,
+                usedPercent: 58,
+              },
+              {
+                label: "Weekly",
+                resetAt: null,
+                usedPercent: 81,
+              },
+            ],
             windows: {
               flash: null,
               pro: null,
@@ -174,6 +176,7 @@ const createSmokeProviderAdapters = () => ({
             planLabel: "API",
           },
           latestError: null,
+          providerDetails: null,
           serviceStatus: null,
           sourceLabel: "api",
           state: "ready",
@@ -183,19 +186,19 @@ const createSmokeProviderAdapters = () => ({
             balances: {
               credits: null,
             },
-            displayMetrics: [
-              {
-                detail: null,
-                label: "Flash",
-                value: "34%",
-              },
-            ],
             providerCost: null,
             quotaBuckets: [
               {
                 modelId: "gemini-2.5-flash",
                 remainingFraction: 0.66,
                 resetTime: "2026-03-10T18:00:00.000Z",
+              },
+            ],
+            rateWindows: [
+              {
+                label: "Flash",
+                resetAt: null,
+                usedPercent: 34,
               },
             ],
             windows: {

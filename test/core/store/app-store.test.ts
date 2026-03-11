@@ -4,6 +4,7 @@ import { createSuccessfulProviderActionResult } from "@/core/actions/action-resu
 import { createRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { createAppStore } from "@/core/store/app-store.ts";
 import { createDefaultConfig } from "@/core/config/schema.ts";
+import { getProviderSnapshotMetrics } from "@/core/store/runtime-state.ts";
 import {
   defaultRefreshSchedulerIntervalMs,
   minimumRefreshSchedulerIntervalMs,
@@ -91,6 +92,7 @@ const createCodexRefreshSnapshot = () => ({
     planLabel: "OAuth",
   },
   latestError: null,
+  providerDetails: null,
   serviceStatus: null,
   sourceLabel: "oauth",
   state: "ready" as const,
@@ -100,20 +102,20 @@ const createCodexRefreshSnapshot = () => ({
     balances: {
       credits: null,
     },
-    displayMetrics: [
-      {
-        detail: null,
-        label: "Session",
-        value: "58%",
-      },
-      {
-        detail: null,
-        label: "Weekly",
-        value: "81%",
-      },
-    ],
     providerCost: null,
     quotaBuckets: [],
+    rateWindows: [
+      {
+        label: "Session",
+        resetAt: null,
+        usedPercent: 58,
+      },
+      {
+        label: "Weekly",
+        resetAt: null,
+        usedPercent: 81,
+      },
+    ],
     windows: {
       flash: null,
       pro: null,
@@ -392,7 +394,7 @@ test("shows in-flight refresh state and applies the final provider snapshot once
   expect(appStore.getProviderView("codex").actions.refresh.status).toBe("success");
   expect(appStore.getProviderView("codex").status.sourceLabel).toBe("oauth");
   expect(appStore.getProviderView("codex").status.updatedAt).toBe(updatedTimestamp);
-  expect(appStore.getProviderView("codex").status.usage.displayMetrics).toEqual([
+  expect(getProviderSnapshotMetrics(appStore.getProviderView("codex").status)).toEqual([
     {
       detail: null,
       label: "Session",

@@ -88,7 +88,7 @@ const assertExactStringArray = (
 
 const assertMetricShape = (
   providerId: ProviderId,
-  metrics: readonly ProviderView["status"]["usage"]["displayMetrics"][number][],
+  metrics: ReturnType<typeof getProviderSnapshotMetrics>,
 ): void => {
   assert(metrics.length > 0, `${providerId}: expected at least one metric.`);
 

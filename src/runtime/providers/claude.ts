@@ -7,7 +7,11 @@ import type {
   ProviderRefreshActionResult,
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
+import { createWeeklyPaceSnapshot } from "@/core/usage/pace.ts";
 import type { RuntimeCommandResult, RuntimeHost } from "@/runtime/host.ts";
+import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
+import { resolveClaudeWebSession } from "@/runtime/providers/claude-web-auth.ts";
+import type { ClaudeWebSessionSnapshot } from "@/runtime/providers/claude-web-models.ts";
 import {
   createProviderCostSnapshot,
   createRefreshError,
@@ -24,6 +28,7 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
+  withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
 import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
@@ -87,6 +92,18 @@ interface ClaudeStatsRecord {
   tokenCount: number | null;
   toolCallCount: number | null;
 }
+
+const tryFetchClaudeTokenCost = async (host: RuntimeHost) => {
+  try {
+    return await fetchTokenCostSnapshot("claude", {
+      env: host.env,
+      homeDirectory: host.homeDirectory,
+      now: host.now(),
+    });
+  } catch {
+    return explicitNull;
+  }
+};
 
 const isProviderMetricInput = (value: unknown): value is ProviderMetricInput => {
   if (!isRecord(value)) {
@@ -588,52 +605,28 @@ const hasClaudeWebSession = async (
     return getActiveClaudeSessionToken(providerConfig) !== null;
   }
 
-  return (await resolveClaudeTokenFilePath(host)) !== null;
+  if ((await resolveClaudeTokenFilePath(host)) !== null) {
+    return true;
+  }
+
+  return (
+    (await resolveClaudeWebSession(host, {
+      cookieSource: "auto",
+      manualSessionToken: explicitNull,
+    })) !== null
+  );
 };
 
 const fetchClaudeWebUsage = async (
   host: RuntimeHost,
-  sessionToken: string,
+  session: ClaudeWebSessionSnapshot,
 ): Promise<ClaudeWebUsageResponse> => {
-  const organizationsResponse = await host.http.request("https://claude.ai/api/organizations", {
-    headers: {
-      Accept: "application/json",
-      Cookie: `sessionKey=${sessionToken}`,
-    },
-    method: "GET",
-    timeoutMs: claudeTimeoutMs,
-  });
-
-  if (organizationsResponse.statusCode < 200 || organizationsResponse.statusCode >= 300) {
-    throw new Error(
-      `Claude organizations request failed with HTTP ${organizationsResponse.statusCode}.`,
-    );
-  }
-
-  const organizationsPayload = parseJsonText(organizationsResponse.bodyText);
-
-  if (!Array.isArray(organizationsPayload)) {
-    throw new TypeError("Claude organizations response was invalid.");
-  }
-
-  const firstOrganization = organizationsPayload.find((entry) => isRecord(entry));
-
-  if (firstOrganization === undefined || !isRecord(firstOrganization)) {
-    throw new Error("Claude organizations response did not include an organization.");
-  }
-
-  const organizationId = readString(firstOrganization, "id");
-
-  if (organizationId === null) {
-    throw new Error("Claude organizations response did not include an organization id.");
-  }
-
   const usageResponse = await host.http.request(
-    `https://claude.ai/api/organizations/${organizationId}/usage`,
+    `https://claude.ai/api/organizations/${session.organizationId}/usage`,
     {
       headers: {
         Accept: "application/json",
-        Cookie: `sessionKey=${sessionToken}`,
+        Cookie: `sessionKey=${session.sessionToken}`,
       },
       method: "GET",
       timeoutMs: claudeTimeoutMs,
@@ -657,9 +650,9 @@ const fetchClaudeWebUsage = async (
   }
 
   return {
-    accountEmail: explicitNull,
+    accountEmail: session.accountEmail,
     metrics,
-    planLabel: readString(firstOrganization, "name"),
+    planLabel: session.organizationName,
   };
 };
 
@@ -679,30 +672,37 @@ const parseClaudeOAuthSnapshot = (
     return createRefreshError("claude", "Claude OAuth data did not include usage metrics.");
   }
 
+  const snapshot = createSnapshot({
+    accountEmail:
+      readString(rawCredentials, "email") ??
+      (oauthRecord ? readJwtEmail(oauthRecord, "idToken") : explicitNull) ??
+      (oauthRecord ? readJwtEmail(oauthRecord, "id_token") : explicitNull) ??
+      fallbackAccountEmail,
+    metrics,
+    planLabel: credentials.subscriptionType,
+    providerCost:
+      extraUsage === null
+        ? explicitNull
+        : createProviderCostSnapshot({
+            currencyCode: extraUsage.currencyCode,
+            limit: extraUsage.limit,
+            periodLabel: "Monthly",
+            updatedAt,
+            used: extraUsage.used,
+          }),
+    sourceLabel: "oauth",
+    updatedAt,
+    version,
+  });
+
   return createRefreshSuccess(
     "claude",
     "Claude refreshed via OAuth.",
-    createSnapshot({
-      accountEmail:
-        readString(rawCredentials, "email") ??
-        (oauthRecord ? readJwtEmail(oauthRecord, "idToken") : explicitNull) ??
-        (oauthRecord ? readJwtEmail(oauthRecord, "id_token") : explicitNull) ??
-        fallbackAccountEmail,
-      metrics,
-      planLabel: credentials.subscriptionType,
-      providerCost:
-        extraUsage === null
-          ? explicitNull
-          : createProviderCostSnapshot({
-              currencyCode: extraUsage.currencyCode,
-              limit: extraUsage.limit,
-              periodLabel: "Monthly",
-              updatedAt,
-              used: extraUsage.used,
-            }),
-      sourceLabel: "oauth",
-      updatedAt,
-      version,
+    withProviderDetails(snapshot, {
+      accountOrg: explicitNull,
+      kind: "claude",
+      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
+      tokenCost: explicitNull,
     }),
   );
 };
@@ -738,16 +738,23 @@ const parseClaudeCliSnapshot = (
     return createRefreshError("claude", "Claude CLI output did not contain usage metrics.");
   }
 
+  const snapshot = createSnapshot({
+    accountEmail: accountMatch?.[1]?.trim() ?? explicitNull,
+    metrics,
+    planLabel: planMatch?.[1]?.trim() ?? explicitNull,
+    sourceLabel: "cli",
+    updatedAt,
+    version,
+  });
+
   return createRefreshSuccess(
     "claude",
     "Claude refreshed via CLI.",
-    createSnapshot({
-      accountEmail: accountMatch?.[1]?.trim() ?? explicitNull,
-      metrics,
-      planLabel: planMatch?.[1]?.trim() ?? explicitNull,
-      sourceLabel: "cli",
-      updatedAt,
-      version,
+    withProviderDetails(snapshot, {
+      accountOrg: planMatch?.[1]?.trim() ?? explicitNull,
+      kind: "claude",
+      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
+      tokenCost: explicitNull,
     }),
   );
 };
@@ -759,16 +766,23 @@ const parseClaudeWebSnapshot = (
   const webMetrics = isRecord(tokenPayload) ? readProviderMetrics(tokenPayload, "metrics") : null;
 
   if (isRecord(tokenPayload) && webMetrics !== null) {
+    const snapshot = createSnapshot({
+      accountEmail: readString(tokenPayload, "accountEmail"),
+      metrics: webMetrics,
+      planLabel: readString(tokenPayload, "planLabel"),
+      sourceLabel: "web",
+      updatedAt,
+      version: explicitNull,
+    });
+
     return createRefreshSuccess(
       "claude",
       "Claude refreshed via web session.",
-      createSnapshot({
-        accountEmail: readString(tokenPayload, "accountEmail"),
-        metrics: webMetrics,
-        planLabel: readString(tokenPayload, "planLabel"),
-        sourceLabel: "web",
-        updatedAt,
-        version: explicitNull,
+      withProviderDetails(snapshot, {
+        accountOrg: readString(tokenPayload, "planLabel"),
+        kind: "claude",
+        pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
+        tokenCost: explicitNull,
       }),
     );
   }
@@ -787,18 +801,27 @@ const parseClaudeWebSnapshot = (
     return createRefreshError("claude", "Claude web snapshot did not include usage metrics.");
   }
 
+  const accountEmail =
+    readString(tokenPayload, "email") ??
+    (accountRecord ? readString(accountRecord, "email_address") : explicitNull);
+  const planLabel = readString(tokenPayload, "plan");
+  const snapshot = createSnapshot({
+    accountEmail,
+    metrics,
+    planLabel,
+    sourceLabel: "web",
+    updatedAt,
+    version: explicitNull,
+  });
+
   return createRefreshSuccess(
     "claude",
     "Claude refreshed via web session.",
-    createSnapshot({
-      accountEmail:
-        readString(tokenPayload, "email") ??
-        (accountRecord ? readString(accountRecord, "email_address") : explicitNull),
-      metrics,
-      planLabel: readString(tokenPayload, "plan"),
-      sourceLabel: "web",
-      updatedAt,
-      version: explicitNull,
+    withProviderDetails(snapshot, {
+      accountOrg: planLabel,
+      kind: "claude",
+      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
+      tokenCost: explicitNull,
     }),
   );
 };
@@ -815,16 +838,23 @@ const parseClaudeLocalSnapshot = (
     return createRefreshError("claude", "Claude local stats did not include usable usage metrics.");
   }
 
+  const snapshot = createSnapshot({
+    accountEmail: authStatus.email ?? fallbackAccountEmail,
+    metrics,
+    planLabel: authStatus.subscriptionType,
+    sourceLabel: "cli",
+    updatedAt,
+    version: explicitNull,
+  });
+
   return createRefreshSuccess(
     "claude",
     "Claude refreshed via local stats.",
-    createSnapshot({
-      accountEmail: authStatus.email ?? fallbackAccountEmail,
-      metrics,
-      planLabel: authStatus.subscriptionType,
-      sourceLabel: "cli",
-      updatedAt,
-      version: explicitNull,
+    withProviderDetails(snapshot, {
+      accountOrg: explicitNull,
+      kind: "claude",
+      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
+      tokenCost: explicitNull,
     }),
   );
 };
@@ -1002,7 +1032,6 @@ const resolveClaudeSource = async (
 ): Promise<ClaudeResolvedSource | null> => {
   const hasOauth = await host.fileSystem.fileExists(resolveClaudeOauthPath(host));
   const hasCli = (await host.commands.which("claude")) !== null;
-  const hasWeb = await hasClaudeWebSession(host, providerConfig);
 
   if (selectedSource === "oauth") {
     return hasOauth ? "oauth" : explicitNull;
@@ -1013,6 +1042,14 @@ const resolveClaudeSource = async (
   }
 
   if (selectedSource === "web") {
+    let hasWeb = false;
+
+    try {
+      hasWeb = await hasClaudeWebSession(host, providerConfig);
+    } catch {
+      hasWeb = false;
+    }
+
     return hasWeb ? "web" : explicitNull;
   }
 
@@ -1022,6 +1059,14 @@ const resolveClaudeSource = async (
 
   if (hasCli) {
     return "cli";
+  }
+
+  let hasWeb = false;
+
+  try {
+    hasWeb = await hasClaudeWebSession(host, providerConfig);
+  } catch {
+    hasWeb = false;
   }
 
   if (hasWeb) {
@@ -1082,6 +1127,46 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       };
     };
 
+    const attachTokenCost = async (
+      result: ProviderRefreshActionResult<"claude">,
+    ): Promise<ProviderRefreshActionResult<"claude">> => {
+      if (result.snapshot === null) {
+        return result;
+      }
+
+      const tokenCost = await tryFetchClaudeTokenCost(host);
+
+      if (
+        tokenCost === null ||
+        (tokenCost.daily.length === 0 && tokenCost.today === null && tokenCost.last30Days === null)
+      ) {
+        return result;
+      }
+
+      const existingDetails =
+        result.snapshot.providerDetails?.kind === "claude"
+          ? result.snapshot.providerDetails
+          : explicitNull;
+
+      return {
+        ...result,
+        snapshot: {
+          ...result.snapshot,
+          providerDetails: {
+            accountOrg: existingDetails?.accountOrg ?? result.snapshot.identity.planLabel,
+            kind: "claude",
+            pace:
+              existingDetails?.pace ??
+              createWeeklyPaceSnapshot(
+                result.snapshot.usage.rateWindows,
+                result.snapshot.updatedAt,
+              ),
+            tokenCost,
+          },
+        },
+      };
+    };
+
     const refreshViaCli = async (): Promise<ProviderRefreshActionResult<"claude">> => {
       const commandResult = await host.commands.run("claude", [], {
         input: claudeStatusInput,
@@ -1117,27 +1202,43 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       const updatedAt = host.now().toISOString();
       const version = await resolveClaudeVersion(host);
 
-      if (providerConfig.cookieSource === "manual") {
-        const manualSessionToken = getActiveClaudeSessionToken(providerConfig);
+      const buildBrowserWebResult = async (
+        session: ClaudeWebSessionSnapshot,
+      ): Promise<ProviderRefreshActionResult<"claude">> => {
+        const webUsage = await fetchClaudeWebUsage(host, session);
+        const snapshot = createSnapshot({
+          accountEmail: webUsage.accountEmail,
+          metrics: webUsage.metrics,
+          planLabel: webUsage.planLabel,
+          sourceLabel: "web",
+          updatedAt,
+          version,
+        });
 
-        if (manualSessionToken === null) {
+        return createRefreshSuccess(
+          "claude",
+          "Claude refreshed via web session.",
+          withProviderDetails(snapshot, {
+            accountOrg: session.organizationName,
+            kind: "claude",
+            pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
+            tokenCost: explicitNull,
+          }),
+        );
+      };
+
+      if (providerConfig.cookieSource === "manual") {
+        const manualSession = await resolveClaudeWebSession(host, {
+          cookieSource: "manual",
+          manualSessionToken: getActiveClaudeSessionToken(providerConfig),
+        });
+
+        if (manualSession === null) {
           return createRefreshError("claude", "Claude manual session token is unavailable.");
         }
 
         try {
-          const webResult = parseClaudeWebSnapshot(
-            await fetchClaudeWebUsage(host, manualSessionToken),
-            updatedAt,
-          );
-
-          if (webResult.snapshot !== null) {
-            webResult.snapshot = {
-              ...webResult.snapshot,
-              version,
-            };
-          }
-
-          return webResult;
+          return await buildBrowserWebResult(manualSession);
         } catch (error) {
           if (error instanceof Error) {
             return createRefreshError("claude", error.message);
@@ -1145,6 +1246,19 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
 
           return createRefreshError("claude", "Claude web session refresh failed.");
         }
+      }
+
+      try {
+        const autoSession = await resolveClaudeWebSession(host, {
+          cookieSource: "auto",
+          manualSessionToken: explicitNull,
+        });
+
+        if (autoSession !== null) {
+          return await buildBrowserWebResult(autoSession);
+        }
+      } catch {
+        // Fall through to the legacy token-file path.
       }
 
       const tokenFilePath = await resolveClaudeTokenFilePath(host);
@@ -1175,31 +1289,31 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       const oauthResult = await fetchClaudeOAuthSnapshot(host);
 
       if (oauthResult.status !== "error" || providerConfig.source !== "auto") {
-        return attachServiceStatus(oauthResult);
+        return attachServiceStatus(await attachTokenCost(oauthResult));
       }
 
       if ((await host.commands.which("claude")) !== null) {
         const cliResult = await refreshViaCli();
 
         if (cliResult.status !== "error") {
-          return attachServiceStatus(cliResult);
+          return attachServiceStatus(await attachTokenCost(cliResult));
         }
       }
 
-      return attachServiceStatus(await refreshViaWeb());
+      return attachServiceStatus(await attachTokenCost(await refreshViaWeb()));
     }
 
     if (resolvedSource === "cli") {
       const cliResult = await refreshViaCli();
 
       if (cliResult.status !== "error" || providerConfig.source !== "auto") {
-        return attachServiceStatus(cliResult);
+        return attachServiceStatus(await attachTokenCost(cliResult));
       }
 
-      return attachServiceStatus(await refreshViaWeb());
+      return attachServiceStatus(await attachTokenCost(await refreshViaWeb()));
     }
 
-    return attachServiceStatus(await refreshViaWeb());
+    return attachServiceStatus(await attachTokenCost(await refreshViaWeb()));
   },
   reloadTokenFile: async (): Promise<
     ReturnType<typeof createErrorProviderActionResult<"claude", "reloadTokenFile">>

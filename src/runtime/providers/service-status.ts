@@ -1,5 +1,6 @@
 import { explicitNull } from "@/core/providers/shared.ts";
 import type {
+  ProviderIncidentSnapshot,
   ProviderServiceStatusIndicator,
   ProviderServiceStatusSnapshot,
 } from "@/core/store/runtime-state.ts";
@@ -48,6 +49,15 @@ const createServiceStatusSnapshot = (
   description,
   indicator,
   updatedAt,
+});
+
+const createWorkspaceIncidentSnapshot = (
+  incident: WorkspaceIncident,
+): ProviderIncidentSnapshot => ({
+  severity: incident.severity,
+  status: incident.updateStatus ?? incident.statusImpact,
+  summary: extractWorkspaceSummary(incident.updateText ?? incident.summaryText),
+  updatedAt: incident.updateWhen ?? incident.modified ?? incident.begin,
 });
 
 const fetchStatuspageServiceStatus = async (
@@ -247,17 +257,13 @@ const fetchWorkspaceServiceStatus = async (
   host: RuntimeHost,
   productId: string,
 ): Promise<ProviderServiceStatusSnapshot> => {
-  const response = await host.http.request(googleWorkspaceIncidentsUrl, {
-    method: "GET",
-    timeoutMs: statusRequestTimeoutMs,
-  });
+  const bundle = await fetchWorkspaceStatusBundle(host, productId);
+  return bundle.serviceStatus;
+};
 
-  if (response.statusCode !== 200) {
-    throw new Error(`Workspace status request failed with HTTP ${response.statusCode}.`);
-  }
-
-  const incidents = readActiveWorkspaceIncidents(parseJsonText(response.bodyText), productId);
-
+const createWorkspaceServiceStatusSnapshot = (
+  incidents: WorkspaceIncident[],
+): ProviderServiceStatusSnapshot => {
   if (incidents.length === 0) {
     return createServiceStatusSnapshot("none", explicitNull, explicitNull);
   }
@@ -287,6 +293,38 @@ const fetchWorkspaceServiceStatus = async (
   );
 };
 
+const fetchWorkspaceStatusBundle = async (
+  host: RuntimeHost,
+  productId: string,
+): Promise<{
+  incidents: ProviderIncidentSnapshot[];
+  serviceStatus: ProviderServiceStatusSnapshot;
+}> => {
+  const response = await host.http.request(googleWorkspaceIncidentsUrl, {
+    method: "GET",
+    timeoutMs: statusRequestTimeoutMs,
+  });
+
+  if (response.statusCode !== 200) {
+    throw new Error(`Workspace status request failed with HTTP ${response.statusCode}.`);
+  }
+
+  const incidents = readActiveWorkspaceIncidents(parseJsonText(response.bodyText), productId);
+
+  return {
+    incidents: incidents.map((incident) => createWorkspaceIncidentSnapshot(incident)),
+    serviceStatus: createWorkspaceServiceStatusSnapshot(incidents),
+  };
+};
+
+const fetchWorkspaceIncidents = async (
+  host: RuntimeHost,
+  productId: string,
+): Promise<ProviderIncidentSnapshot[]> => {
+  const bundle = await fetchWorkspaceStatusBundle(host, productId);
+  return bundle.incidents;
+};
+
 const fetchProviderServiceStatus = async (
   host: RuntimeHost,
   source: ProviderServiceStatusSource,
@@ -309,8 +347,38 @@ const tryFetchProviderServiceStatus = async (
   }
 };
 
+const tryFetchWorkspaceIncidents = async (
+  host: RuntimeHost,
+  productId: string,
+): Promise<ProviderIncidentSnapshot[]> => {
+  try {
+    return await fetchWorkspaceIncidents(host, productId);
+  } catch {
+    return [];
+  }
+};
+
+const tryFetchWorkspaceStatusBundle = async (
+  host: RuntimeHost,
+  productId: string,
+): Promise<{
+  incidents: ProviderIncidentSnapshot[];
+  serviceStatus: ProviderServiceStatusSnapshot | null;
+}> => {
+  try {
+    return await fetchWorkspaceStatusBundle(host, productId);
+  } catch {
+    return {
+      incidents: [],
+      serviceStatus: explicitNull,
+    };
+  }
+};
+
 export {
   fetchProviderServiceStatus,
+  tryFetchWorkspaceStatusBundle,
+  tryFetchWorkspaceIncidents,
   tryFetchProviderServiceStatus,
   type ProviderServiceStatusSource,
 };

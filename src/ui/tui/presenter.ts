@@ -1,5 +1,4 @@
 import { findCurrentChoiceLabel, getSettingsItems } from "@/ui/tui/descriptors.ts";
-import { getProviderSnapshotMetrics } from "@/core/store/runtime-state.ts";
 import type { ProviderCostSnapshot } from "@/core/store/runtime-state.ts";
 import type {
   ProviderId,
@@ -296,8 +295,179 @@ const createHeaderLines = (providerView: ProviderView, now: Date): string[] => {
   ];
 };
 
+const getOrderedUsageMetrics = (
+  providerView: ProviderView,
+): {
+  detail: string | null;
+  label: string;
+  value: string;
+}[] => {
+  const metrics: {
+    detail: string | null;
+    label: string;
+    value: string;
+  }[] = [];
+  const { usage } = providerView.status;
+
+  if (usage.windows.session !== null) {
+    metrics.push(usage.windows.session);
+  }
+
+  if (usage.windows.weekly !== null) {
+    metrics.push(usage.windows.weekly);
+  }
+
+  if (usage.windows.sonnet !== null) {
+    metrics.push(usage.windows.sonnet);
+  }
+
+  if (usage.windows.pro !== null) {
+    metrics.push(usage.windows.pro);
+  }
+
+  if (usage.windows.flash !== null) {
+    metrics.push(usage.windows.flash);
+  }
+
+  if (usage.balances.credits !== null) {
+    metrics.push(usage.balances.credits);
+  }
+
+  metrics.push(...usage.additional);
+  return metrics;
+};
+
+const createProviderDetailUsageLines = (providerView: ProviderView): string[] => {
+  const {providerDetails} = providerView.status;
+
+  if (providerDetails === null) {
+    return [];
+  }
+
+  if (providerDetails.kind === "codex") {
+    const lines: string[] = [];
+
+    if (providerDetails.pace !== null) {
+      lines.push("", providerDetails.pace.statusText);
+    }
+
+    const codeReviewWindow = providerDetails.dashboard?.codeReviewWindow ?? null;
+
+    if (codeReviewWindow !== null) {
+      const remaining = codeReviewWindow.remainingPercent;
+
+      lines.push(
+        "",
+        `Code review ${remaining === null ? "unknown" : `${String(remaining)}% remaining`}`,
+      );
+    }
+
+    if (providerDetails.dashboard !== null) {
+      if (providerDetails.dashboard.usageBreakdown.length > 0) {
+        lines.push(`Usage breakdown ${String(providerDetails.dashboard.usageBreakdown.length)}d`);
+      }
+
+      if (providerDetails.dashboard.creditHistory.length > 0) {
+        lines.push(
+          `Credit history ${String(providerDetails.dashboard.creditHistory.length)} events`,
+        );
+      }
+
+      const {approximateCreditUsage} = providerDetails.dashboard;
+
+      if (
+        approximateCreditUsage !== null &&
+        (approximateCreditUsage.cloudMessages !== null ||
+          approximateCreditUsage.localMessages !== null)
+      ) {
+        const segments: string[] = [];
+
+        if (approximateCreditUsage.cloudMessages !== null) {
+          segments.push(`${String(approximateCreditUsage.cloudMessages)} cloud`);
+        }
+
+        if (approximateCreditUsage.localMessages !== null) {
+          segments.push(`${String(approximateCreditUsage.localMessages)} local`);
+        }
+
+        lines.push(`Credits approx ${segments.join(" / ")}`);
+      }
+    }
+
+    if (providerDetails.tokenCost !== null) {
+      if (providerDetails.tokenCost.today !== null) {
+        lines.push(
+          providerDetails.tokenCost.today.costUsd === null
+            ? "Token cost today unavailable"
+            : `Token cost today USD ${providerDetails.tokenCost.today.costUsd.toFixed(2)}`,
+        );
+      }
+
+      if (providerDetails.tokenCost.last30Days !== null) {
+        lines.push(
+          providerDetails.tokenCost.last30Days.costUsd === null
+            ? "Token cost 30d unavailable"
+            : `Token cost 30d USD ${providerDetails.tokenCost.last30Days.costUsd.toFixed(2)}`,
+        );
+      }
+    }
+
+    return lines;
+  }
+
+  if (providerDetails.kind === "claude") {
+    const lines: string[] = [];
+
+    if (providerDetails.pace !== null) {
+      lines.push("", providerDetails.pace.statusText);
+    }
+
+    if (providerDetails.tokenCost !== null) {
+      if (providerDetails.tokenCost.today !== null) {
+        lines.push(
+          providerDetails.tokenCost.today.costUsd === null
+            ? "Token cost today unavailable"
+            : `Token cost today USD ${providerDetails.tokenCost.today.costUsd.toFixed(2)}`,
+        );
+      }
+
+      if (providerDetails.tokenCost.last30Days !== null) {
+        lines.push(
+          providerDetails.tokenCost.last30Days.costUsd === null
+            ? "Token cost 30d unavailable"
+            : `Token cost 30d USD ${providerDetails.tokenCost.last30Days.costUsd.toFixed(2)}`,
+        );
+      }
+    }
+
+    return lines;
+  }
+
+  const lines: string[] = [];
+
+  if (providerDetails.quotaDrilldown !== null) {
+    lines.push(
+      "",
+      `Quota buckets flash ${String(providerDetails.quotaDrilldown.flashBuckets.length)}`,
+      `Quota buckets pro ${String(providerDetails.quotaDrilldown.proBuckets.length)}`,
+    );
+
+    if (providerDetails.quotaDrilldown.otherBuckets.length > 0) {
+      lines.push(
+        `Quota buckets other ${String(providerDetails.quotaDrilldown.otherBuckets.length)}`,
+      );
+    }
+  }
+
+  if (providerDetails.incidents.length > 0) {
+    lines.push(`Incidents ${String(providerDetails.incidents.length)}`);
+  }
+
+  return lines;
+};
+
 const createUsageLines = (providerView: ProviderView): string[] => {
-  const displayMetrics = getProviderSnapshotMetrics(providerView.status);
+  const displayMetrics = getOrderedUsageMetrics(providerView);
 
   if (displayMetrics.length === 0) {
     return ["No usage data yet.", "Press r to refresh the selected provider."];
@@ -339,6 +509,8 @@ const createUsageLines = (providerView: ProviderView): string[] => {
     lines.push(formatProviderCostLabel(providerCost));
   }
 
+  lines.push(...createProviderDetailUsageLines(providerView));
+
   return lines;
 };
 
@@ -372,6 +544,31 @@ const createDetailsLines = (providerView: ProviderView): string[] => {
 
   if (providerView.status.usage.providerCost !== null) {
     rows.push(["extra", formatProviderCostLabel(providerView.status.usage.providerCost)]);
+  }
+
+  if (providerView.status.providerDetails?.kind === "claude") {
+    if (providerView.status.providerDetails.accountOrg !== null) {
+      rows.push(["org", providerView.status.providerDetails.accountOrg]);
+    }
+
+    if (providerView.status.providerDetails.pace !== null) {
+      rows.push(["pace", providerView.status.providerDetails.pace.statusText]);
+    }
+  }
+
+  if (providerView.status.providerDetails?.kind === "codex") {
+    if (providerView.status.providerDetails.pace !== null) {
+      rows.push(["pace", providerView.status.providerDetails.pace.statusText]);
+    }
+  }
+
+  if (providerView.status.providerDetails?.kind === "gemini") {
+    if (providerView.status.providerDetails.incidents.length > 0) {
+      rows.push([
+        "incident",
+        providerView.status.providerDetails.incidents[0]?.summary ?? "active",
+      ]);
+    }
   }
 
   return rows.map(([label, value]) => `${label.padEnd(8, " ")} ${value}`);

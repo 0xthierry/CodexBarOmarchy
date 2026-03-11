@@ -27,6 +27,7 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
       planLabel: "Max",
     },
     latestError: null,
+    providerDetails: null,
     serviceStatus: {
       description: "Degraded performance",
       indicator: "minor",
@@ -40,13 +41,6 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
       balances: {
         credits: null,
       },
-      displayMetrics: [
-        {
-          detail: null,
-          label: "Session",
-          value: "72%",
-        },
-      ],
       providerCost: {
         currencyCode: "USD",
         limit: 50,
@@ -56,6 +50,13 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
         used: 12.34,
       },
       quotaBuckets: [],
+      rateWindows: [
+        {
+          label: "Session",
+          resetAt: null,
+          usedPercent: 72,
+        },
+      ],
       windows: {
         flash: null,
         pro: null,
@@ -84,6 +85,7 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
     accountEmail: "claude@example.com",
     planLabel: "Max",
   });
+  expect(claudeProvider?.providerDetails).toBeNull();
   expect(claudeProvider?.serviceStatus).toEqual({
     description: "Degraded performance",
     indicator: "minor",

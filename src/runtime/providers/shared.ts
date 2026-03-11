@@ -7,8 +7,10 @@ import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapte
 import { explicitNull } from "@/core/providers/shared.ts";
 import type {
   ProviderCostSnapshot,
+  ProviderDetailsSnapshot,
   ProviderMetricView,
   ProviderQuotaBucketSnapshot,
+  ProviderRateWindowSnapshot,
   ProviderRuntimeSnapshot,
   ProviderUsageSnapshot,
 } from "@/core/store/runtime-state.ts";
@@ -168,6 +170,28 @@ const createMetric = (input: ProviderMetricInput): ProviderMetricView => ({
   value: input.value,
 });
 
+const parsePercentValue = (value: string): number | null => {
+  const matchedPercent = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)%$/u)?.[1];
+
+  if (typeof matchedPercent !== "string") {
+    return explicitNull;
+  }
+
+  const parsedPercent = Number(matchedPercent);
+
+  return Number.isFinite(parsedPercent) ? parsedPercent : explicitNull;
+};
+
+const createRateWindowSnapshot = (input: {
+  label: string;
+  resetAt?: string | null;
+  usedPercent: number;
+}): ProviderRateWindowSnapshot => ({
+  label: input.label,
+  resetAt: input.resetAt ?? explicitNull,
+  usedPercent: input.usedPercent,
+});
+
 const createProviderCostSnapshot = (input: {
   currencyCode: string;
   limit: number;
@@ -204,9 +228,9 @@ const createUsageSnapshot = (
     balances: {
       credits: explicitNull,
     },
-    displayMetrics: metrics.map((metric) => createMetric(metric)),
     providerCost,
     quotaBuckets,
+    rateWindows: [],
     windows: {
       flash: explicitNull,
       pro: explicitNull,
@@ -216,29 +240,87 @@ const createUsageSnapshot = (
     },
   };
 
-  for (const metric of usage.displayMetrics) {
+  for (const metricInput of metrics) {
+    const metric = createMetric(metricInput);
+    const usedPercent = parsePercentValue(metric.value);
+
     if (metric.label === "Session") {
       usage.windows.session = metric;
+
+      if (usedPercent !== null) {
+        usage.rateWindows.push(
+          createRateWindowSnapshot({
+            label: metric.label,
+            resetAt: metric.detail,
+            usedPercent,
+          }),
+        );
+      }
+
       continue;
     }
 
     if (metric.label === "Weekly") {
       usage.windows.weekly = metric;
+
+      if (usedPercent !== null) {
+        usage.rateWindows.push(
+          createRateWindowSnapshot({
+            label: metric.label,
+            resetAt: metric.detail,
+            usedPercent,
+          }),
+        );
+      }
+
       continue;
     }
 
     if (metric.label === "Sonnet") {
       usage.windows.sonnet = metric;
+
+      if (usedPercent !== null) {
+        usage.rateWindows.push(
+          createRateWindowSnapshot({
+            label: metric.label,
+            resetAt: metric.detail,
+            usedPercent,
+          }),
+        );
+      }
+
       continue;
     }
 
     if (metric.label === "Pro") {
       usage.windows.pro = metric;
+
+      if (usedPercent !== null) {
+        usage.rateWindows.push(
+          createRateWindowSnapshot({
+            label: metric.label,
+            resetAt: metric.detail,
+            usedPercent,
+          }),
+        );
+      }
+
       continue;
     }
 
     if (metric.label === "Flash") {
       usage.windows.flash = metric;
+
+      if (usedPercent !== null) {
+        usage.rateWindows.push(
+          createRateWindowSnapshot({
+            label: metric.label,
+            resetAt: metric.detail,
+            usedPercent,
+          }),
+        );
+      }
+
       continue;
     }
 
@@ -258,6 +340,7 @@ const createSnapshot = (input: {
   latestError?: string | null;
   metrics?: ProviderMetricInput[];
   planLabel?: string | null;
+  providerDetails?: ProviderDetailsSnapshot | null;
   providerCost?: ProviderCostSnapshot | null;
   quotaBuckets?: ProviderQuotaBucketSnapshot[];
   sourceLabel: string;
@@ -269,6 +352,7 @@ const createSnapshot = (input: {
     planLabel: input.planLabel ?? explicitNull,
   },
   latestError: input.latestError ?? explicitNull,
+  providerDetails: input.providerDetails ?? explicitNull,
   serviceStatus: explicitNull,
   sourceLabel: input.sourceLabel,
   state: "ready",
@@ -296,6 +380,14 @@ const createRefreshError = <ProviderValue extends ProviderId>(
   message: string,
 ): ProviderRefreshActionResult<ProviderValue> =>
   createRefreshActionResult(createErrorProviderActionResult(providerId, "refresh", message));
+
+const withProviderDetails = (
+  snapshot: ProviderRuntimeSnapshot,
+  providerDetails: ProviderDetailsSnapshot,
+): ProviderRuntimeSnapshot => ({
+  ...snapshot,
+  providerDetails,
+});
 
 const decodeBase64Url = (value: string): string | null => {
   const normalizedValue = value.replaceAll("-", "+").replaceAll("_", "/");
@@ -390,6 +482,7 @@ export {
   readNestedRecord,
   readString,
   readStringArray,
+  withProviderDetails,
   writeJsonFile,
   type JsonFileReadResult,
   type ProviderMetricInput,

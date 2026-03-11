@@ -108,6 +108,10 @@ const writeJson = async (filePath: string, value: unknown): Promise<void> => {
   await writeText(filePath, `${JSON.stringify(value, null, 2)}\n`);
 };
 
+const writeJsonl = async (filePath: string, entries: unknown[]): Promise<void> => {
+  await writeText(filePath, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+};
+
 const createHostFixture = async (
   input: {
     commands?: Record<string, CommandFixture>;
@@ -304,6 +308,26 @@ test("codex refreshes against the real usage API contract", async () => {
   await writeJson(versionPath, {
     latest_version: "0.111.0",
   });
+  await writeJsonl(
+    join(fixture.homeDirectory, ".codex", "sessions", "2026", "03", "08", "usage.jsonl"),
+    [
+      {
+        payload: {
+          info: {
+            last_token_usage: {
+              cached_input_tokens: 10,
+              input_tokens: 50,
+              output_tokens: 25,
+            },
+            model: "gpt-5",
+          },
+          type: "token_count",
+        },
+        timestamp: "2026-03-08T10:01:00.000Z",
+        type: "event_msg",
+      },
+    ],
+  );
 
   const refreshResult = await providerAdapters.codex.refresh({
     config: createConfig(),
@@ -320,6 +344,26 @@ test("codex refreshes against the real usage API contract", async () => {
     updatedAt: "2026-03-08T11:59:00.000Z",
   });
   expect(refreshResult.snapshot?.version).toBe("0.111.0");
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    kind: "codex",
+    tokenCost: {
+      daily: [
+        {
+          costUsd: 0.000_301,
+          date: "2026-03-08",
+          totalTokens: 85,
+        },
+      ],
+      last30Days: {
+        costUsd: 0.000_301,
+        tokens: 85,
+      },
+      today: {
+        costUsd: 0.000_301,
+        tokens: 85,
+      },
+    },
+  });
   expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "soon",
@@ -358,6 +402,157 @@ test("codex refreshes against the real usage API contract", async () => {
       url: "https://status.openai.com/api/v2/status.json",
     },
   ]);
+});
+
+test("codex attaches web extras when manual cookies are enabled", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture({
+    httpResponses: {
+      "GET https://chatgpt.com/api/auth/session": [
+        createJsonResponse({
+          accessToken: "chatgpt-web-access-token",
+          account: {
+            email: "codex@example.com",
+            id: "acct_web",
+          },
+        }),
+      ],
+      "GET https://chatgpt.com/backend-api/wham/usage": [
+        createJsonResponse({
+          credits: {
+            balance: 10.5,
+          },
+          email: "codex@example.com",
+          plan_type: "pro",
+          rate_limit: {
+            primary_window: {
+              reset_at: "soon",
+              used_percent: 42,
+            },
+            secondary_window: {
+              reset_at: "later",
+              used_percent: 75,
+            },
+          },
+        }),
+        createJsonResponse({
+          additional_rate_limits: [
+            {
+              label: "Agent",
+              remaining_percent: 81,
+              reset_at: "2026-03-09T00:00:00.000Z",
+            },
+          ],
+          code_review_rate_limit: {
+            remaining_percent: 64,
+            reset_at: "2026-03-08T18:00:00.000Z",
+          },
+          purchase_url: "https://chatgpt.com/buy-credits",
+        }),
+      ],
+      "GET https://chatgpt.com/backend-api/wham/usage/approximate-credit-usage?credit_amount=125": [
+        createJsonResponse({
+          approx_cloud_messages: 12,
+          approx_local_messages: 3,
+        }),
+      ],
+      "GET https://chatgpt.com/backend-api/wham/usage/credit-usage-events": [
+        createJsonResponse({
+          data: [
+            {
+              amount: -2.5,
+              occurred_at: "2026-03-07T15:00:00.000Z",
+              type: "usage",
+            },
+          ],
+        }),
+      ],
+      "GET https://chatgpt.com/backend-api/wham/usage/daily-token-usage-breakdown": [
+        createJsonResponse({
+          data: [
+            {
+              date: "2026-03-07",
+              input_tokens: 120,
+              output_tokens: 45,
+              total_tokens: 165,
+            },
+          ],
+        }),
+      ],
+      "GET https://status.openai.com/api/v2/status.json": [
+        createJsonResponse({
+          page: {
+            updated_at: "2026-03-08T11:59:00.000Z",
+          },
+          status: {
+            description: "Operational",
+            indicator: "none",
+          },
+        }),
+      ],
+    },
+  });
+  const authPath = join(fixture.homeDirectory, ".codex", "auth.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  await writeJson(authPath, {
+    tokens: {
+      access_token: "codex-access-token",
+      account_id: "acct_123",
+      id_token: "header.eyJlbWFpbCI6ImNvZGV4QGV4YW1wbGUuY29tIn0.signature",
+      refresh_token: "codex-refresh-token",
+    },
+  });
+
+  const refreshResult = await providerAdapters.codex.refresh({
+    config,
+    providerConfig: {
+      ...config.providers.codex,
+      cookieHeader: "foo=bar; baz=qux",
+      cookieSource: "manual",
+      extrasEnabled: true,
+    },
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    dashboard: {
+      additionalRateLimits: [
+        {
+          label: "Agent",
+          remainingPercent: 81,
+          resetAt: "2026-03-09T00:00:00.000Z",
+        },
+      ],
+      approximateCreditUsage: {
+        cloudMessages: 12,
+        localMessages: 3,
+      },
+      codeReviewWindow: {
+        label: "Code review",
+        remainingPercent: 64,
+        resetAt: "2026-03-08T18:00:00.000Z",
+      },
+      creditHistory: [
+        {
+          amount: -2.5,
+          occurredAt: "2026-03-07T15:00:00.000Z",
+          type: "usage",
+        },
+      ],
+      purchaseUrl: "https://chatgpt.com/buy-credits",
+      usageBreakdown: [
+        {
+          date: "2026-03-07",
+          inputTokens: 120,
+          outputTokens: 45,
+          totalTokens: 165,
+        },
+      ],
+    },
+    kind: "codex",
+    tokenCost: explicitNull,
+  });
 });
 
 test("codex rejects untrusted usage origins before sending oauth headers", async () => {
@@ -810,6 +1005,99 @@ test("claude oauth falls back to auth status for account email and cli version",
   ]);
 });
 
+test("claude auto does not let browser-cookie probe failures block oauth refresh", async () => {
+  const fixture = await createHostFixture({
+    commands: {
+      "claude --version": {
+        exitCode: 0,
+        stderr: "",
+        stdout: "2.1.71 (Claude Code)\n",
+      },
+      "claude auth status --json": {
+        exitCode: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          email: "claude@example.com",
+          loggedIn: true,
+        }),
+      },
+    },
+    httpResponses: {
+      "GET https://api.anthropic.com/api/oauth/usage": [
+        createJsonResponse({
+          five_hour: {
+            resets_at: "2026-03-08T18:00:00.000Z",
+            utilization: 12,
+          },
+          seven_day: {
+            resets_at: "2026-03-11T00:00:00.000Z",
+            utilization: 18,
+          },
+          seven_day_sonnet: {
+            resets_at: "2026-03-11T00:00:00.000Z",
+            utilization: 22,
+          },
+        }),
+      ],
+      "GET https://status.claude.com/api/v2/status.json": [
+        createJsonResponse({
+          page: {
+            updated_at: "2026-03-08T11:59:00.000Z",
+          },
+          status: {
+            description: "Operational",
+            indicator: "none",
+          },
+        }),
+      ],
+    },
+  });
+  const credentialsPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+  const firefoxProfilesPath = join(
+    fixture.homeDirectory,
+    ".config",
+    "mozilla",
+    "firefox",
+    "profiles.ini",
+  );
+  const originalFileExists = fixture.host.fileSystem.fileExists;
+  const originalReadTextFile = fixture.host.fileSystem.readTextFile;
+
+  await writeJson(credentialsPath, {
+    claudeAiOauth: {
+      accessToken: "claude-valid-access-token",
+      expiresAt: Date.parse("2026-03-09T00:00:00.000Z"),
+      refreshToken: "claude-refresh-token",
+      subscriptionType: "max",
+    },
+  });
+
+  fixture.host.fileSystem.fileExists = async (filePath: string): Promise<boolean> => {
+    if (filePath === firefoxProfilesPath) {
+      return true;
+    }
+
+    return originalFileExists(filePath);
+  };
+  fixture.host.fileSystem.readTextFile = async (filePath: string): Promise<string> => {
+    if (filePath === firefoxProfilesPath) {
+      throw new Error("browser cookie store unreadable");
+    }
+
+    return originalReadTextFile(filePath);
+  };
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config: createConfig(),
+    providerConfig: createConfig().providers.claude,
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
+});
+
 test("codex refreshes oauth tokens after an unauthorized usage response using client metadata discovered from the installed cli", async () => {
   const fixture = await createHostFixture({
     httpResponses: {
@@ -1083,6 +1371,11 @@ test("claude uses the manual session token for the web fallback path", async () 
   const config = createConfig();
   const fixture = await createHostFixture({
     httpResponses: {
+      "GET https://claude.ai/api/account": [
+        createJsonResponse({
+          email_address: "web@example.com",
+        }),
+      ],
       "GET https://claude.ai/api/organizations": [
         createJsonResponse([
           {
@@ -1110,6 +1403,41 @@ test("claude uses the manual session token for the web fallback path", async () 
     },
   });
   const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+  await writeJsonl(
+    join(fixture.homeDirectory, ".config", "claude", "projects", "workspace", "usage.jsonl"),
+    [
+      {
+        message: {
+          id: "msg_1",
+          model: "claude-sonnet-4-5",
+          usage: {
+            cache_creation_input_tokens: 50,
+            cache_read_input_tokens: 100,
+            input_tokens: 1000,
+            output_tokens: 200,
+          },
+        },
+        requestId: "req_1",
+        timestamp: "2026-03-08T09:00:00.000Z",
+        type: "assistant",
+      },
+      {
+        message: {
+          id: "msg_2",
+          model: "claude-haiku-4-5",
+          usage: {
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            input_tokens: 200,
+            output_tokens: 40,
+          },
+        },
+        requestId: "req_2",
+        timestamp: "2026-03-08T09:05:00.000Z",
+        type: "assistant",
+      },
+    ],
+  );
 
   const refreshResult = await providerAdapters.claude.refresh({
     config,
@@ -1128,8 +1456,41 @@ test("claude uses the manual session token for the web fallback path", async () 
 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("web");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("web@example.com");
   expect(refreshResult.snapshot?.identity.planLabel).toBe("Claude Team");
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    accountOrg: "Claude Team",
+    kind: "claude",
+    tokenCost: {
+      daily: [
+        {
+          costUsd: 0.006_618,
+          date: "2026-03-08",
+          totalTokens: 1590,
+        },
+      ],
+      last30Days: {
+        costUsd: 0.006_618,
+        tokens: 1590,
+      },
+      today: {
+        costUsd: 0.006_618,
+        tokens: 1590,
+      },
+    },
+  });
   expect(fixture.httpRequests).toEqual([
+    {
+      options: {
+        headers: {
+          Accept: "application/json",
+          Cookie: "sessionKey=sk-ant-session-token",
+        },
+        method: "GET",
+        timeoutMs: 8000,
+      },
+      url: "https://claude.ai/api/account",
+    },
     {
       options: {
         headers: {
@@ -1632,6 +1993,34 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
       resetTime: "later",
     },
   ]);
+  expect(refreshResult.snapshot?.providerDetails).toEqual({
+    incidents: [
+      {
+        severity: explicitNull,
+        status: "SERVICE_INFORMATION",
+        summary: "Minor issue.",
+        updatedAt: "2026-03-08T12:05:00.000Z",
+      },
+    ],
+    kind: "gemini",
+    quotaDrilldown: {
+      flashBuckets: [
+        {
+          modelId: "gemini-2.5-flash",
+          remainingFraction: 0.41,
+          resetTime: "later",
+        },
+      ],
+      otherBuckets: [],
+      proBuckets: [
+        {
+          modelId: "gemini-2.5-pro",
+          remainingFraction: 0.72,
+          resetTime: "tomorrow",
+        },
+      ],
+    },
+  });
   expect(persistedCredentials["access_token"]).toBe("gemini-new-access-token");
   expect(persistedCredentials["id_token"]).toBe(
     "header.eyJlbWFpbCI6ImdlbWluaUBleGFtcGxlLmNvbSJ9.signature",

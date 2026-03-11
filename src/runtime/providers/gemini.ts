@@ -20,9 +20,10 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
+  withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
-import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
+import { tryFetchWorkspaceStatusBundle } from "@/runtime/providers/service-status.ts";
 
 const geminiLoadCodeAssistEndpoint =
   "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
@@ -438,26 +439,45 @@ const parseGeminiQuotaSnapshot = (
             ? "Free"
             : explicitNull;
 
+  const normalizedQuotaBuckets = quotaBuckets.map((bucket) =>
+    createProviderQuotaBucketSnapshot({
+      modelId: bucket.modelId,
+      remainingFraction: bucket.remainingFraction,
+      resetTime: bucket.resetTime,
+    }),
+  );
+  const snapshot = createSnapshot({
+    accountEmail:
+      readString(credentials.rawRecord, "email") ??
+      readJwtEmail(credentials.rawRecord, "id_token") ??
+      readJwtEmail(credentials.rawRecord, "idToken"),
+    metrics,
+    planLabel,
+    quotaBuckets: normalizedQuotaBuckets,
+    sourceLabel: "api",
+    updatedAt,
+    version: readString(isRecord(quotaPayload) ? quotaPayload : {}, "version") ?? version,
+  });
+  const quotaDrilldown = {
+    flashBuckets: normalizedQuotaBuckets.filter((bucket) =>
+      bucket.modelId.toLowerCase().includes("flash"),
+    ),
+    otherBuckets: normalizedQuotaBuckets.filter((bucket) => {
+      const modelId = bucket.modelId.toLowerCase();
+      return !modelId.includes("flash") && !modelId.includes("pro");
+    }),
+    proBuckets: normalizedQuotaBuckets.filter((bucket) =>
+      bucket.modelId.toLowerCase().includes("pro"),
+    ),
+  };
+
   return createRefreshSuccess(
     "gemini",
     "Gemini refreshed via API.",
-    createSnapshot({
-      accountEmail:
-        readString(credentials.rawRecord, "email") ??
-        readJwtEmail(credentials.rawRecord, "id_token") ??
-        readJwtEmail(credentials.rawRecord, "idToken"),
-      metrics,
-      planLabel,
-      quotaBuckets: quotaBuckets.map((bucket) =>
-        createProviderQuotaBucketSnapshot({
-          modelId: bucket.modelId,
-          remainingFraction: bucket.remainingFraction,
-          resetTime: bucket.resetTime,
-        }),
-      ),
-      sourceLabel: "api",
-      updatedAt,
-      version: readString(isRecord(quotaPayload) ? quotaPayload : {}, "version") ?? version,
+    withProviderDetails(snapshot, {
+      incidents: [],
+      kind: "gemini",
+      quotaDrilldown,
     }),
   );
 };
@@ -633,14 +653,23 @@ const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter =
       return result;
     }
 
+    const workspaceStatus = await tryFetchWorkspaceStatusBundle(
+      host,
+      geminiStatusWorkspaceProductId,
+    );
+
     return {
       ...result,
       snapshot: {
         ...result.snapshot,
-        serviceStatus: await tryFetchProviderServiceStatus(host, {
-          kind: "workspace",
-          productId: geminiStatusWorkspaceProductId,
-        }),
+        providerDetails:
+          result.snapshot.providerDetails?.kind === "gemini"
+            ? {
+                ...result.snapshot.providerDetails,
+                incidents: workspaceStatus.incidents,
+              }
+            : result.snapshot.providerDetails,
+        serviceStatus: workspaceStatus.serviceStatus,
       },
     };
   },

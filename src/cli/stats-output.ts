@@ -20,7 +20,8 @@ interface StatsProviderSnapshot {
   id: ProviderView["id"];
   identity: ProviderView["status"]["identity"];
   latestError: string | null;
-  metrics: readonly ProviderView["status"]["usage"]["displayMetrics"][number][];
+  metrics: ReturnType<typeof getProviderSnapshotMetrics>;
+  providerDetails: ProviderView["status"]["providerDetails"];
   serviceStatus: ProviderView["status"]["serviceStatus"];
   selected: boolean;
   settings: StatsProviderSettings;
@@ -68,6 +69,7 @@ const toStatsProviderSnapshot = (providerView: ProviderView): StatsProviderSnaps
   latestError: providerView.status.latestError,
   metrics: getProviderSnapshotMetrics(providerView.status),
   planLabel: providerView.status.identity.planLabel,
+  providerDetails: providerView.status.providerDetails,
   selected: providerView.selected,
   serviceStatus: providerView.status.serviceStatus,
   settings: toStatsProviderSettings(providerView),

@@ -15,6 +15,7 @@ test("renders a deterministic plain-text snapshot for non-tty output", () => {
       planLabel: "OAuth",
     },
     latestError: null,
+    providerDetails: null,
     serviceStatus: null,
     sourceLabel: "oauth",
     state: "ready",
@@ -24,20 +25,20 @@ test("renders a deterministic plain-text snapshot for non-tty output", () => {
       balances: {
         credits: null,
       },
-      displayMetrics: [
-        {
-          detail: null,
-          label: "Session",
-          value: "58%",
-        },
-        {
-          detail: null,
-          label: "Weekly",
-          value: "81%",
-        },
-      ],
       providerCost: null,
       quotaBuckets: [],
+      rateWindows: [
+        {
+          label: "Session",
+          resetAt: null,
+          usedPercent: 58,
+        },
+        {
+          label: "Weekly",
+          resetAt: null,
+          usedPercent: 81,
+        },
+      ],
       windows: {
         flash: null,
         pro: null,

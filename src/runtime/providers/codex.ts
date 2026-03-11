@@ -4,7 +4,11 @@ import type {
   ProviderRefreshActionResult,
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
+import { createWeeklyPaceSnapshot } from "@/core/usage/pace.ts";
 import type { RuntimeCommandLineSession, RuntimeHost } from "@/runtime/host.ts";
+import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
+import { resolveCodexWebSession } from "@/runtime/providers/codex-web-auth.ts";
+import { fetchCodexWhamDashboard } from "@/runtime/providers/codex-web-wham.ts";
 import {
   createRefreshError,
   createRefreshSuccess,
@@ -18,6 +22,7 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
+  withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
 import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
@@ -75,6 +80,18 @@ interface CodexUsageResponse {
   rateLimit?: Record<string, unknown> | null;
   version?: string | null;
 }
+
+const tryFetchCodexTokenCost = async (host: RuntimeHost) => {
+  try {
+    return await fetchTokenCostSnapshot("codex", {
+      env: host.env,
+      homeDirectory: host.homeDirectory,
+      now: host.now(),
+    });
+  } catch {
+    return explicitNull;
+  }
+};
 
 const resolveCodexAuthPath = (host: RuntimeHost): string => {
   const configuredCodexHome = host.env["CODEX_HOME"];
@@ -432,21 +449,27 @@ const parseCodexOAuthSnapshot = (
 
   const authRecord = authFileRecord.rawRecord;
   const tokenRecord = readNestedRecord(authRecord, "tokens");
+  const snapshot = createSnapshot({
+    accountEmail:
+      usageResponse.email ??
+      readString(authRecord, "account_email") ??
+      readString(authRecord, "email") ??
+      (tokenRecord ? readJwtEmail(tokenRecord, "id_token") : explicitNull),
+    metrics,
+    planLabel: usageResponse.planType ?? explicitNull,
+    sourceLabel: "oauth",
+    updatedAt,
+    version: usageResponse.version ?? version,
+  });
 
   return createRefreshSuccess(
     "codex",
     "Codex refreshed via OAuth.",
-    createSnapshot({
-      accountEmail:
-        usageResponse.email ??
-        readString(authRecord, "account_email") ??
-        readString(authRecord, "email") ??
-        (tokenRecord ? readJwtEmail(tokenRecord, "id_token") : explicitNull),
-      metrics,
-      planLabel: usageResponse.planType ?? explicitNull,
-      sourceLabel: "oauth",
-      updatedAt,
-      version: usageResponse.version ?? version,
+    withProviderDetails(snapshot, {
+      dashboard: explicitNull,
+      kind: "codex",
+      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
+      tokenCost: explicitNull,
     }),
   );
 };
@@ -690,16 +713,23 @@ const parseCodexCliSnapshot = (
     return createRefreshError("codex", "Codex CLI output did not contain usage metrics.");
   }
 
+  const snapshot = createSnapshot({
+    accountEmail: accountResult.account?.email ?? explicitNull,
+    metrics,
+    planLabel: accountResult.account?.planType ?? rateLimits?.planType ?? explicitNull,
+    sourceLabel: "cli",
+    updatedAt,
+    version,
+  });
+
   return createRefreshSuccess(
     "codex",
     "Codex refreshed via CLI.",
-    createSnapshot({
-      accountEmail: accountResult.account?.email ?? explicitNull,
-      metrics,
-      planLabel: accountResult.account?.planType ?? rateLimits?.planType ?? explicitNull,
-      sourceLabel: "cli",
-      updatedAt,
-      version,
+    withProviderDetails(snapshot, {
+      dashboard: explicitNull,
+      kind: "codex",
+      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
+      tokenCost: explicitNull,
     }),
   );
 };
@@ -822,21 +852,123 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
       };
     };
 
+    const attachWebDetails = async (
+      result: ProviderRefreshActionResult<"codex">,
+    ): Promise<ProviderRefreshActionResult<"codex">> => {
+      if (
+        result.snapshot === null ||
+        !providerConfig.extrasEnabled ||
+        providerConfig.cookieSource === "off"
+      ) {
+        return result;
+      }
+
+      try {
+        const webSession = await resolveCodexWebSession(host, {
+          cookieHeader: providerConfig.cookieHeader,
+          cookieSource: providerConfig.cookieSource,
+          expectedEmail: result.snapshot.identity.accountEmail,
+        });
+
+        if (webSession === null) {
+          return result;
+        }
+
+        const dashboard = await fetchCodexWhamDashboard(host, webSession);
+
+        if (dashboard === null) {
+          return result;
+        }
+
+        return {
+          ...result,
+          snapshot: {
+            ...result.snapshot,
+            identity: {
+              ...result.snapshot.identity,
+              accountEmail: result.snapshot.identity.accountEmail ?? webSession.accountEmail,
+            },
+            providerDetails: {
+              dashboard,
+              kind: "codex",
+              pace:
+                result.snapshot.providerDetails?.kind === "codex"
+                  ? result.snapshot.providerDetails.pace
+                  : createWeeklyPaceSnapshot(
+                      result.snapshot.usage.rateWindows,
+                      result.snapshot.updatedAt,
+                    ),
+              tokenCost:
+                result.snapshot.providerDetails?.kind === "codex"
+                  ? result.snapshot.providerDetails.tokenCost
+                  : explicitNull,
+            },
+          },
+        };
+      } catch {
+        return result;
+      }
+    };
+
+    const attachTokenCost = async (
+      result: ProviderRefreshActionResult<"codex">,
+    ): Promise<ProviderRefreshActionResult<"codex">> => {
+      if (result.snapshot === null) {
+        return result;
+      }
+
+      const tokenCost = await tryFetchCodexTokenCost(host);
+
+      if (
+        tokenCost === null ||
+        (tokenCost.daily.length === 0 && tokenCost.today === null && tokenCost.last30Days === null)
+      ) {
+        return result;
+      }
+
+      const existingDetails =
+        result.snapshot.providerDetails?.kind === "codex"
+          ? result.snapshot.providerDetails
+          : explicitNull;
+
+      return {
+        ...result,
+        snapshot: {
+          ...result.snapshot,
+          providerDetails: {
+            dashboard: existingDetails?.dashboard ?? explicitNull,
+            kind: "codex",
+            pace:
+              existingDetails?.pace ??
+              createWeeklyPaceSnapshot(
+                result.snapshot.usage.rateWindows,
+                result.snapshot.updatedAt,
+              ),
+            tokenCost,
+          },
+        },
+      };
+    };
+
     if (resolvedSource === "oauth") {
       const oauthResult = await fetchCodexOAuthSnapshot(host);
 
       if (providerConfig.source !== "auto" || oauthResult.status !== "error") {
-        return attachServiceStatus(oauthResult);
+        return attachServiceStatus(await attachTokenCost(await attachWebDetails(oauthResult)));
       }
 
       if ((await host.commands.which("codex")) === null) {
-        return attachServiceStatus(oauthResult);
+        return attachServiceStatus(await attachTokenCost(await attachWebDetails(oauthResult)));
       }
 
-      return attachServiceStatus(await fetchCodexCliSnapshot(host));
+      return attachServiceStatus(
+        await attachTokenCost(await attachWebDetails(await fetchCodexCliSnapshot(host))),
+      );
     }
 
-    return attachServiceStatus(await fetchCodexCliSnapshot(host));
+    return attachServiceStatus(
+      await attachTokenCost(await attachWebDetails(await fetchCodexCliSnapshot(host))),
+    );
   },
 });
 
