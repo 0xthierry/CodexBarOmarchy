@@ -27,25 +27,23 @@ const createAggregate = (
   }
 
   let costUsd = 0;
-  let hasUnpricedUsage = false;
   let tokens = 0;
   const unpricedModels = new Set<string>();
 
   for (const dailyPoint of dailyPoints) {
-    if (dailyPoint.costUsd === null) {
-      hasUnpricedUsage = true;
-      for (const model of dailyPoint.unpricedModels) {
-        unpricedModels.add(model);
-      }
-    } else {
+    if (dailyPoint.costUsd !== null) {
       costUsd += dailyPoint.costUsd;
+    }
+
+    for (const model of dailyPoint.unpricedModels) {
+      unpricedModels.add(model);
     }
 
     tokens += dailyPoint.totalTokens;
   }
 
   return {
-    costUsd: hasUnpricedUsage ? null : Math.round(costUsd * 1_000_000) / 1_000_000,
+    costUsd: Math.round(costUsd * 1_000_000) / 1_000_000,
     tokens,
     unpricedModels: [...unpricedModels].toSorted(),
   };

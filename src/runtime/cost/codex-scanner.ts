@@ -179,7 +179,7 @@ const toDailyPoints = (
       return {
         cacheReadTokens,
         cacheWriteTokens,
-        costUsd: unpricedModels.length === 0 ? roundUsd(costUsd) : null,
+        costUsd: roundUsd(costUsd),
         date: dayKey,
         inputTokens,
         modelsUsed,

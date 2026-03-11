@@ -299,7 +299,7 @@ test("summarizes today and last 30 days from provider daily token-cost entries",
   }
 });
 
-test("marks still-unpriced model variants as unavailable instead of reporting zero cost", async () => {
+test("treats still-unpriced model variants as zero-cost estimates while preserving the unknown model list", async () => {
   const homeDirectory = await mkdtemp(join(tmpdir(), "agent-stats-unpriced-cost-"));
 
   try {
@@ -327,12 +327,12 @@ test("marks still-unpriced model variants as unavailable instead of reporting ze
     });
 
     expect(snapshot.today).toEqual({
-      costUsd: null,
+      costUsd: 0,
       tokens: 85,
       unpricedModels: ["gpt-5.3-codex-spark"],
     });
     expect(snapshot.last30Days).toEqual({
-      costUsd: null,
+      costUsd: 0,
       tokens: 85,
       unpricedModels: ["gpt-5.3-codex-spark"],
     });
@@ -340,7 +340,7 @@ test("marks still-unpriced model variants as unavailable instead of reporting ze
       {
         cacheReadTokens: 10,
         cacheWriteTokens: 0,
-        costUsd: null,
+        costUsd: 0,
         date: "2026-03-11",
         inputTokens: 50,
         modelsUsed: ["gpt-5.3-codex-spark"],
