@@ -655,12 +655,13 @@ const parseCodexCliSnapshot = (
   const metrics = [];
   const primaryPercent = rateLimits?.primary?.usedPercent;
   const secondaryPercent = rateLimits?.secondary?.usedPercent;
-  const creditBalance =
-    typeof rateLimits?.credits?.balance === "number"
-      ? rateLimits.credits.balance
-      : typeof rateLimits?.credits?.balance === "string"
-        ? Number(rateLimits.credits.balance)
-        : NaN;
+  let creditBalance = NaN;
+
+  if (typeof rateLimits?.credits?.balance === "number") {
+    creditBalance = rateLimits.credits.balance;
+  } else if (typeof rateLimits?.credits?.balance === "string") {
+    creditBalance = Number(rateLimits.credits.balance);
+  }
 
   if (typeof primaryPercent === "number") {
     metrics.push({

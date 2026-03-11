@@ -1,13 +1,12 @@
 pre-commit:
-  parallel: true
   commands:
+    lint:
+      glob: "*.{ts,tsx,js,jsx}"
+      run: bun run lint:fix:files {staged_files}
+      stage_fixed: true
     format:
       glob: "*.{ts,tsx,js,jsx}"
       run: bun run format:fix {staged_files}
-      stage_fixed: true
-    lint:
-      glob: "*.{ts,tsx,js,jsx}"
-      run: bun run lint:fix {staged_files}
       stage_fixed: true
 
 pre-push:

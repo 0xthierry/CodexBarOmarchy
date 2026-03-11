@@ -14,6 +14,7 @@
     "format:check": "oxfmt --check src",
     "lint": "oxlint src test e2e --config .oxlintrc.json --tsconfig tsconfig.json --report-unused-disable-directives --quiet",
     "lint:fix": "oxlint src test e2e --config .oxlintrc.json --tsconfig tsconfig.json --report-unused-disable-directives --fix --fix-suggestions",
+    "lint:fix:files": "oxlint --config .oxlintrc.json --tsconfig tsconfig.json --report-unused-disable-directives --fix --fix-suggestions",
     "lint:strict": "oxlint src test e2e --config .oxlintrc.json --tsconfig tsconfig.json --report-unused-disable-directives",
     "typecheck": "tsgo --noEmit --project tsconfig.json",
     "e2e": "bun run e2e/host-integration.ts",
