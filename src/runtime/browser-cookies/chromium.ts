@@ -69,6 +69,16 @@ const decryptChromiumCookieValue = (encryptedValue: Uint8Array, key: Buffer): Bu
   }
 };
 
+const readEncryptedValue = (
+  encryptedValue: string | bigint | number | boolean | Uint8Array,
+): Uint8Array => {
+  if (encryptedValue instanceof Uint8Array) {
+    return encryptedValue;
+  }
+
+  throw new TypeError("Expected cookies.encrypted_value to be a BLOB.");
+};
+
 const readChromiumCookieRows = async (cookieDbPath: string): Promise<ChromiumCookieRow[]> => {
   const tempDbPath = await copyCookieDbToTempPath(cookieDbPath);
 
@@ -88,7 +98,7 @@ const readChromiumCookieRows = async (cookieDbPath: string): Promise<ChromiumCoo
       `);
 
       return statement.values().map((row) => ({
-        encryptedValue: row[4] as Uint8Array,
+        encryptedValue: readEncryptedValue(row[4]),
         hostKey: String(row[0]),
         name: String(row[1]),
         path: String(row[2]),

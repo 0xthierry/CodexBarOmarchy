@@ -29,5 +29,10 @@ test("decrypts a Chromium v11 cookie payload and strips the version-24 domain di
   const decryptedValue = decryptChromiumCookieValue(encryptedValue, key);
 
   expect(decryptedValue).not.toBeNull();
-  expect(stripChromiumV24DomainDigest(decryptedValue!, hostKey).toString("utf8")).toBe(cookieValue);
+
+  if (decryptedValue === null) {
+    throw new Error("Expected Chromium cookie decryption to succeed.");
+  }
+
+  expect(stripChromiumV24DomainDigest(decryptedValue, hostKey).toString("utf8")).toBe(cookieValue);
 });
