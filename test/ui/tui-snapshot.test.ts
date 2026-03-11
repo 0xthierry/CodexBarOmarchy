@@ -70,4 +70,6 @@ test("renders a deterministic plain-text snapshot for non-tty output", () => {
   expect(snapshot).toContain("config");
   expect(snapshot).toContain("menu");
   expect(snapshot).toContain("Session");
+  expect(snapshot).not.toContain("Raw quotas");
+  expect(snapshot).not.toContain("Provider health:");
 });

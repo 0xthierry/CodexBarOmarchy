@@ -96,6 +96,7 @@ interface TuiViewModel {
   tabs: TuiTabViewModel[];
   title: string;
   usageLines: string[];
+  usageStatusLine: string | null;
 }
 
 export {

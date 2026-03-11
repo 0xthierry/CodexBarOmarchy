@@ -77,9 +77,14 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
     title: "usage",
     width: "100%",
   });
+  const usageContent = new BoxRenderable(options.renderer, {
+    flexDirection: "column",
+    height: "100%",
+    width: "100%",
+  });
   const usageScroll = new ScrollBoxRenderable(options.renderer, {
     backgroundColor: options.theme.background,
-    height: "100%",
+    flexGrow: 1,
     paddingX: 1,
     scrollY: true,
     width: "100%",
@@ -87,6 +92,19 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
   const usageText = new TextRenderable(options.renderer, {
     content: "",
     fg: options.theme.foreground,
+    width: "100%",
+    wrapMode: "word",
+  });
+  const usageStatusBox = new BoxRenderable(options.renderer, {
+    height: 1,
+    paddingX: 1,
+    visible: false,
+    width: "100%",
+  });
+  const usageStatusText = new TextRenderable(options.renderer, {
+    content: "",
+    fg: options.theme.color3,
+    height: 1,
     width: "100%",
     wrapMode: "word",
   });
@@ -270,7 +288,10 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
   headerBox.add(headerText);
   headerBox.add(tabs);
   usageScroll.add(usageText);
-  usageBox.add(usageScroll);
+  usageStatusBox.add(usageStatusText);
+  usageContent.add(usageScroll);
+  usageContent.add(usageStatusBox);
+  usageBox.add(usageContent);
   detailsScroll.add(detailsText);
   detailsBox.add(detailsScroll);
   configScroll.add(configText);
@@ -320,6 +341,8 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
     }
 
     usageText.content = viewModel.usageLines.join("\n");
+    usageStatusBox.visible = viewModel.usageStatusLine !== null;
+    usageStatusText.content = viewModel.usageStatusLine ?? "";
     detailsText.content = viewModel.detailsLines.join("\n");
     configText.content = viewModel.configLines.join("\n");
     menuText.content = viewModel.menuLines.join("\n");

@@ -1,9 +1,6 @@
 import { findCurrentChoiceLabel, getSettingsItems } from "@/ui/tui/descriptors.ts";
 import { getProviderSnapshotMetrics } from "@/core/store/runtime-state.ts";
-import type {
-  ProviderCostSnapshot,
-  ProviderQuotaBucketSnapshot,
-} from "@/core/store/runtime-state.ts";
+import type { ProviderCostSnapshot } from "@/core/store/runtime-state.ts";
 import type {
   ProviderId,
   ProviderView,
@@ -123,6 +120,34 @@ const humanizeValue = (value: string): string => {
   return value;
 };
 
+const maskEmailAddress = (value: string | null): string => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return "unknown";
+  }
+
+  const separatorIndex = value.indexOf("@");
+
+  if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
+    return value;
+  }
+
+  const localPart = value.slice(0, separatorIndex);
+  const domainPart = value.slice(separatorIndex + 1);
+  const targetPrefixLength = 3;
+  const targetSuffixLength = 2;
+  const visiblePrefixLength = Math.max(
+    1,
+    Math.min(targetPrefixLength, localPart.length - targetSuffixLength - 1),
+  );
+  const remainingLength = localPart.length - visiblePrefixLength;
+  const visibleSuffixLength =
+    remainingLength <= 1 ? 0 : Math.min(targetSuffixLength, remainingLength - 1);
+  const visibleSuffix =
+    visibleSuffixLength === 0 ? "" : localPart.slice(localPart.length - visibleSuffixLength);
+
+  return `${localPart.slice(0, visiblePrefixLength)}****${visibleSuffix}@${domainPart}`;
+};
+
 const formatProviderHealthLabel = (value: ProviderView["status"]["serviceStatus"]): string => {
   if (value === null) {
     return "Unknown";
@@ -167,33 +192,6 @@ const getProviderCostPercent = (value: ProviderCostSnapshot): number | null => {
   }
 
   return Math.max(0, Math.min(100, Math.round((value.used / value.limit) * 100)));
-};
-
-const formatQuotaBucketLabel = (value: ProviderQuotaBucketSnapshot): string => {
-  const usedPercent = Math.max(0, Math.min(100, Math.round((1 - value.remainingFraction) * 100)));
-  const detail = describeMetric("Pro", value.resetTime);
-
-  if (detail === null) {
-    return `${value.modelId} ${String(usedPercent)}%`;
-  }
-
-  return `${value.modelId} ${String(usedPercent)}% • ${detail}`;
-};
-
-const createQuotaBucketSummaryLines = (quotaBuckets: ProviderQuotaBucketSnapshot[]): string[] => {
-  if (quotaBuckets.length === 0) {
-    return [];
-  }
-
-  const visibleBuckets = quotaBuckets.slice(0, 3);
-  const hiddenBucketCount = quotaBuckets.length - visibleBuckets.length;
-
-  return [
-    "",
-    `Raw quotas ${String(quotaBuckets.length)} models`,
-    ...visibleBuckets.map((bucket) => formatQuotaBucketLabel(bucket)),
-    ...(hiddenBucketCount > 0 ? [`+${String(hiddenBucketCount)} more`] : []),
-  ];
 };
 
 const describeMetric = (label: string, detail: string | null): string | null => {
@@ -341,33 +339,30 @@ const createUsageLines = (providerView: ProviderView): string[] => {
     lines.push(formatProviderCostLabel(providerCost));
   }
 
-  lines.push(...createQuotaBucketSummaryLines(providerView.status.usage.quotaBuckets));
+  return lines;
+};
 
-  if (providerView.status.serviceStatus !== null) {
-    lines.push(
-      "",
-      `Provider health: ${formatProviderHealthLabel(providerView.status.serviceStatus)}`,
-    );
+const createUsageStatusLine = (providerView: ProviderView): string | null => {
+  const { serviceStatus } = providerView.status;
 
-    if (
-      providerView.status.serviceStatus.indicator !== "none" &&
-      providerView.status.serviceStatus.description !== null
-    ) {
-      lines.push(providerView.status.serviceStatus.description);
-    }
+  if (serviceStatus === null || serviceStatus.indicator === "none") {
+    return null;
   }
 
-  return lines;
+  if (typeof serviceStatus.description === "string" && serviceStatus.description.trim() !== "") {
+    return serviceStatus.description;
+  }
+
+  return formatProviderHealthLabel(serviceStatus);
 };
 
 const createDetailsLines = (providerView: ProviderView): string[] => {
   const rows: [string, string][] = [
     ["state", humanizeValue(providerView.status.state)],
-    ["health", formatProviderHealthLabel(providerView.status.serviceStatus)],
     ["source", humanizeValue(providerView.status.sourceLabel ?? "unknown")],
     ["version", providerView.status.version ?? "unknown"],
     ["updated", formatUpdatedDisplay(providerView.status.updatedAt)],
-    ["account", providerView.status.identity.accountEmail ?? "unknown"],
+    ["account", maskEmailAddress(providerView.status.identity.accountEmail)],
     ["plan", providerView.status.identity.planLabel ?? "unknown"],
   ];
 
@@ -377,15 +372,6 @@ const createDetailsLines = (providerView: ProviderView): string[] => {
 
   if (providerView.status.usage.providerCost !== null) {
     rows.push(["extra", formatProviderCostLabel(providerView.status.usage.providerCost)]);
-  }
-  if (providerView.status.usage.quotaBuckets.length > 0) {
-    rows.push(["quotas", `${String(providerView.status.usage.quotaBuckets.length)} raw buckets`]);
-  }
-
-  const { serviceStatus } = providerView.status;
-
-  if (serviceStatus !== null && serviceStatus.description !== null) {
-    rows.push(["impact", serviceStatus.description]);
   }
 
   return rows.map(([label, value]) => `${label.padEnd(8, " ")} ${value}`);
@@ -556,6 +542,7 @@ const createTuiViewModel = (
     tabs: createTabs(state, localState),
     title: appTitle,
     usageLines: createUsageLines(selectedProvider),
+    usageStatusLine: createUsageStatusLine(selectedProvider),
   };
 };
 
@@ -564,6 +551,7 @@ export {
   formatHeaderClockDisplay,
   formatUpdatedDisplay,
   humanizeValue,
+  maskEmailAddress,
   formatProviderHealthLabel,
   parseIsoDate,
   truncate,
