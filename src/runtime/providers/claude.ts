@@ -38,8 +38,6 @@ const claudeOAuthUsageEndpoint = "https://api.anthropic.com/api/oauth/usage";
 const claudeStatusInput = "/status\n";
 const claudeTimeoutMs = 8000;
 const claudeTokenFileNames = ["session-token.json", "session.json"] as const;
-const claudeStatsCacheFileName = "stats-cache.json";
-const claudeStateFileName = ".claude.json";
 const fallbackClaudeCodeVersion = "2.1.0";
 const oauthUsageBetaHeader = "oauth-2025-04-20";
 const claudeStatusPageUrl = "https://status.claude.com";
@@ -82,14 +80,6 @@ interface ClaudeAuthStatusResponse {
   email: string | null;
   loggedIn: boolean | null;
   subscriptionType: string | null;
-}
-
-interface ClaudeStatsRecord {
-  latestDate: string | null;
-  messageCount: number | null;
-  sessionCount: number | null;
-  tokenCount: number | null;
-  toolCallCount: number | null;
 }
 
 const tryFetchClaudeTokenCost = async (host: RuntimeHost) => {
@@ -138,12 +128,6 @@ const resolveClaudeOauthPath = (host: RuntimeHost): string =>
 
 const resolveClaudeDefaultTokenFilePath = (host: RuntimeHost): string =>
   joinPath(host.homeDirectory, ".claude", claudeTokenFileNames[0]);
-
-const resolveClaudeStatePath = (host: RuntimeHost): string =>
-  joinPath(host.homeDirectory, ".claude", claudeStateFileName);
-
-const resolveClaudeStatsCachePath = (host: RuntimeHost): string =>
-  joinPath(host.homeDirectory, ".claude", claudeStatsCacheFileName);
 
 const resolveClaudeBinaryPath = async (host: RuntimeHost): Promise<string | null> => {
   const binaryPath = await host.commands.which("claude");
@@ -274,68 +258,6 @@ const parseClaudeExtraUsage = (
   };
 };
 
-const collectClaudeLocalMetrics = (statsRecord: ClaudeStatsRecord): ProviderMetricInput[] => {
-  const metrics: ProviderMetricInput[] = [];
-
-  if (statsRecord.tokenCount !== null) {
-    metrics.push({
-      detail: statsRecord.latestDate,
-      label: "Tokens",
-      value: String(statsRecord.tokenCount),
-    });
-  }
-
-  if (statsRecord.messageCount !== null) {
-    metrics.push({
-      detail: statsRecord.latestDate,
-      label: "Messages",
-      value: String(statsRecord.messageCount),
-    });
-  }
-
-  if (statsRecord.sessionCount !== null) {
-    metrics.push({
-      detail: statsRecord.latestDate,
-      label: "Sessions",
-      value: String(statsRecord.sessionCount),
-    });
-  }
-
-  if (statsRecord.toolCallCount !== null) {
-    metrics.push({
-      detail: statsRecord.latestDate,
-      label: "Tools",
-      value: String(statsRecord.toolCallCount),
-    });
-  }
-
-  return metrics;
-};
-
-const readLatestDatedRecord = (value: unknown): Record<string, unknown> | null => {
-  if (!Array.isArray(value)) {
-    return explicitNull;
-  }
-
-  let latestRecord: Record<string, unknown> | null = explicitNull;
-  let latestDate = "";
-
-  for (const entry of value) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-
-    const date = readString(entry, "date");
-
-    if (date !== null && date >= latestDate) {
-      latestDate = date;
-      latestRecord = entry;
-    }
-  }
-
-  return latestRecord;
-};
-
 const parseClaudeCredentials = (value: unknown): ClaudeCredentialRecord | null => {
   if (!isRecord(value)) {
     return explicitNull;
@@ -401,47 +323,6 @@ const readClaudeAuthStatus = async (
       commandResult,
     };
   }
-};
-
-const parseClaudeStatsRecord = (value: unknown): ClaudeStatsRecord | null => {
-  if (!isRecord(value)) {
-    return explicitNull;
-  }
-
-  const latestActivityRecord = readLatestDatedRecord(value["dailyActivity"]);
-  const latestTokenRecord = readLatestDatedRecord(value["dailyModelTokens"]);
-  const tokensByModel = latestTokenRecord
-    ? readNestedRecord(latestTokenRecord, "tokensByModel")
-    : explicitNull;
-  let tokenCount = 0;
-  let tokenCountFound = false;
-
-  if (tokensByModel !== null) {
-    for (const entry of Object.values(tokensByModel)) {
-      if (typeof entry === "number" && Number.isFinite(entry)) {
-        tokenCount += entry;
-        tokenCountFound = true;
-      }
-    }
-  }
-
-  const latestDate =
-    (latestActivityRecord ? readString(latestActivityRecord, "date") : explicitNull) ??
-    (latestTokenRecord ? readString(latestTokenRecord, "date") : explicitNull);
-
-  return {
-    latestDate,
-    messageCount: latestActivityRecord
-      ? readFiniteNumber(latestActivityRecord, "messageCount")
-      : explicitNull,
-    sessionCount: latestActivityRecord
-      ? readFiniteNumber(latestActivityRecord, "sessionCount")
-      : explicitNull,
-    tokenCount: tokenCountFound ? tokenCount : explicitNull,
-    toolCallCount: latestActivityRecord
-      ? readFiniteNumber(latestActivityRecord, "toolCallCount")
-      : explicitNull,
-  };
 };
 
 const updateClaudeCredentialRecord = (
@@ -821,84 +702,6 @@ const parseClaudeWebSnapshot = (
   );
 };
 
-const parseClaudeLocalSnapshot = (
-  authStatus: ClaudeAuthStatusResponse,
-  statsRecord: ClaudeStatsRecord,
-  fallbackAccountEmail: string | null,
-  updatedAt: string,
-): ProviderRefreshActionResult<"claude"> => {
-  const metrics = collectClaudeLocalMetrics(statsRecord);
-
-  if (metrics.length === 0) {
-    return createRefreshError("claude", "Claude local stats did not include usable usage metrics.");
-  }
-
-  const snapshot = createSnapshot({
-    accountEmail: authStatus.email ?? fallbackAccountEmail,
-    metrics,
-    planLabel: authStatus.subscriptionType,
-    sourceLabel: "cli",
-    updatedAt,
-    version: explicitNull,
-  });
-
-  return createRefreshSuccess(
-    "claude",
-    "Claude refreshed via local stats.",
-    withProviderDetails(snapshot, {
-      accountOrg: explicitNull,
-      kind: "claude",
-      tokenCost: explicitNull,
-    }),
-  );
-};
-
-const fetchClaudeLocalSnapshot = async (
-  host: RuntimeHost,
-): Promise<ProviderRefreshActionResult<"claude">> => {
-  const { authStatus, commandResult: authStatusCommandResult } = await readClaudeAuthStatus(host);
-
-  if (authStatusCommandResult.exitCode !== 0) {
-    return createRefreshError(
-      "claude",
-      authStatusCommandResult.stderr || "Claude auth status command failed.",
-    );
-  }
-
-  if (authStatus === null) {
-    return createRefreshError("claude", "Claude auth status returned invalid JSON.");
-  }
-
-  if (authStatus.loggedIn === false) {
-    return createRefreshError("claude", "Claude auth status reports that the CLI is logged out.");
-  }
-
-  const statsPayload = await readJsonFile(host, resolveClaudeStatsCachePath(host));
-
-  if (statsPayload.status !== "ok") {
-    return createRefreshError("claude", "Claude stats cache could not be read.");
-  }
-
-  const statsRecord = parseClaudeStatsRecord(statsPayload.value);
-
-  if (statsRecord === null) {
-    return createRefreshError("claude", "Claude stats cache was invalid.");
-  }
-
-  const statePayload = await readJsonFile(host, resolveClaudeStatePath(host));
-  const stateRecord =
-    statePayload.status === "ok" && isRecord(statePayload.value)
-      ? statePayload.value
-      : explicitNull;
-
-  return parseClaudeLocalSnapshot(
-    authStatus,
-    statsRecord,
-    stateRecord ? readString(stateRecord, "emailAddress") : explicitNull,
-    host.now().toISOString(),
-  );
-};
-
 const fetchClaudeOAuthSnapshot = async (
   host: RuntimeHost,
 ): Promise<ProviderRefreshActionResult<"claude">> => {
@@ -1174,16 +977,7 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
         }
       }
 
-      const localResult = await fetchClaudeLocalSnapshot(host);
-
-      if (localResult.snapshot !== null) {
-        localResult.snapshot = {
-          ...localResult.snapshot,
-          version,
-        };
-      }
-
-      return localResult;
+      return createRefreshError("claude", "Claude CLI output did not contain usage metrics.");
     };
 
     const refreshViaWeb = async (): Promise<ProviderRefreshActionResult<"claude">> => {

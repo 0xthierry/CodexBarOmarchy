@@ -111,7 +111,10 @@ test("renders the required shell sections for the selected provider", () => {
   expect(viewModel.usageLines.join("\n")).toContain("USD 25.00 / USD 100.00 Monthly");
   expect(viewModel.usageLines.join("\n")).not.toContain("Raw quotas");
   expect(viewModel.usageLines.join("\n")).not.toContain("gemini-2.5-pro");
-  expect(viewModel.usageStatusLine).toBe("Partial outage on chat history");
+  expect(viewModel.usageBanner).toEqual({
+    text: "Partial outage on chat history",
+    tone: "status",
+  });
   expect(viewModel.detailsLines.join("\n")).not.toContain("health");
   expect(viewModel.detailsLines.join("\n")).toContain("extra");
   expect(viewModel.detailsLines.join("\n")).toContain("account");
@@ -187,7 +190,7 @@ test("omits usage health status when the provider is operational", () => {
     createInitialLocalState(),
   );
 
-  expect(viewModel.usageStatusLine).toBeNull();
+  expect(viewModel.usageBanner).toBeNull();
   expect(viewModel.usageLines.join("\n")).not.toContain("Raw quotas");
   expect(viewModel.detailsLines.join("\n")).not.toContain("quotas");
 });
@@ -490,7 +493,118 @@ test("keeps Claude local counters compact so cost lines remain visible", () => {
   expect(viewModel.usageLines.join("\n")).toContain("Cost:");
   expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost today: USD 15.18");
   expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost 30d: USD 795.79");
-  expect(viewModel.usageStatusLine).toBe("Partially Degraded Service");
+  expect(viewModel.usageBanner).toEqual({
+    text: "Partially Degraded Service",
+    tone: "status",
+  });
+});
+
+test("prefers refresh errors over service status in the usage banner", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: "claude@example.com",
+      planLabel: "Claude Team",
+    },
+    latestError: "Claude OAuth request failed with HTTP 429.",
+    providerDetails: null,
+    serviceStatus: {
+      description: "Partially Degraded Service",
+      indicator: "minor",
+      updatedAt: "2026-03-11T12:00:00.000Z",
+    },
+    sourceLabel: "oauth",
+    state: "error",
+    updatedAt: "2026-03-11T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [
+        {
+          label: "Weekly",
+          resetAt: "2026-03-12T12:00:00.000Z",
+          usedPercent: 60,
+        },
+      ],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: {
+          detail: "2026-03-12T12:00:00.000Z",
+          label: "Weekly",
+          value: "60%",
+        },
+      },
+    },
+    version: "2.1.72",
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.usageLines.join("\n")).toContain("Weekly");
+  expect(viewModel.usageBanner).toEqual({
+    text: "Claude OAuth request failed with HTTP 429.",
+    tone: "error",
+  });
+});
+
+test("shows the new empty usage guidance when no usage metrics are available", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: null,
+      planLabel: null,
+    },
+    latestError: null,
+    providerDetails: null,
+    serviceStatus: null,
+    sourceLabel: "cli",
+    state: "ready",
+    updatedAt: "2026-03-11T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: "2.1.72",
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.usageLines).toEqual(["No usage data yet, try another source in the settings."]);
 });
 
 test("renders unavailable token-cost text when pricing is unknown", () => {

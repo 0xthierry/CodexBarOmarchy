@@ -21,7 +21,7 @@ const renderTuiSnapshot = (viewModel: TuiViewModel): string => {
     "",
     "usage",
     ...viewModel.usageLines,
-    ...(viewModel.usageStatusLine === null ? [] : ["", viewModel.usageStatusLine]),
+    ...(viewModel.usageBanner === null ? [] : ["", viewModel.usageBanner.text]),
     "",
     "details",
     ...viewModel.detailsLines,

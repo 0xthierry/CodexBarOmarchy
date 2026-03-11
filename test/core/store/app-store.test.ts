@@ -1,6 +1,9 @@
 import { createFakeConfigStore, createTestBinaryLocator, defaultDelayMs } from "./test-support.ts";
 import { expect, test } from "bun:test";
-import { createSuccessfulProviderActionResult } from "@/core/actions/action-result.ts";
+import {
+  createErrorProviderActionResult,
+  createSuccessfulProviderActionResult,
+} from "@/core/actions/action-result.ts";
 import { createRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { createAppStore } from "@/core/store/app-store.ts";
 import { createDefaultConfig } from "@/core/config/schema.ts";
@@ -458,6 +461,109 @@ test("converts thrown refresh operations into provider error state", async () =>
   expect(appStore.getProviderView("claude").actions.refresh.status).toBe("error");
   expect(appStore.getProviderView("claude").status.state).toBe("error");
   expect(appStore.getProviderView("claude").status.latestError).toBe("network down");
+});
+
+test("preserves the last successful refresh snapshot when a later refresh fails", async () => {
+  let refreshCount = 0;
+  const appStore = createAppStore({
+    binaryLocator: createTestBinaryLocator({
+      claude: true,
+      codex: true,
+      gemini: true,
+    }),
+    configStore: createFakeConfigStore(createDefaultConfig()),
+    providerAdapters: {
+      claude: {
+        login: async () =>
+          createSuccessfulProviderActionResult("claude", "login", "Claude login started."),
+        openTokenFile: async () =>
+          createSuccessfulProviderActionResult("claude", "openTokenFile", "Opened."),
+        refresh: async () => {
+          if (refreshCount === 0) {
+            refreshCount += 1;
+            return createRefreshActionResult(
+              createSuccessfulProviderActionResult("claude", "refresh", "Claude refreshed."),
+              {
+                ...createCodexRefreshSnapshot(),
+                identity: {
+                  accountEmail: "claude@example.com",
+                  planLabel: "Claude Team",
+                },
+                sourceLabel: "oauth",
+                version: "2.1.72",
+              },
+            );
+          }
+
+          return createRefreshActionResult(
+            createErrorProviderActionResult(
+              "claude",
+              "refresh",
+              "Claude OAuth request failed with HTTP 429.",
+            ),
+          );
+        },
+        reloadTokenFile: async () =>
+          createSuccessfulProviderActionResult("claude", "reloadTokenFile", "Reloaded."),
+        repair: async () =>
+          createSuccessfulProviderActionResult("claude", "repair", "Claude repaired."),
+      },
+      codex: {
+        login: async () =>
+          createSuccessfulProviderActionResult("codex", "login", "Codex login started."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("codex", "refresh", "Codex refreshed."),
+          ),
+      },
+      gemini: {
+        login: async () =>
+          createSuccessfulProviderActionResult("gemini", "login", "Gemini login started."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("gemini", "refresh", "Gemini refreshed."),
+          ),
+      },
+    },
+  });
+
+  await appStore.initialize();
+
+  await appStore.refreshProvider("claude");
+
+  const firstSnapshot = appStore.getProviderView("claude").status;
+
+  expect(getProviderSnapshotMetrics(firstSnapshot)).toEqual([
+    {
+      detail: null,
+      label: "Session",
+      value: "58%",
+    },
+    {
+      detail: null,
+      label: "Weekly",
+      value: "81%",
+    },
+  ]);
+
+  const failingResult = await appStore.refreshProvider("claude");
+
+  expect(failingResult.status).toBe("error");
+  expect(appStore.getProviderView("claude").status.latestError).toBe(
+    "Claude OAuth request failed with HTTP 429.",
+  );
+  expect(getProviderSnapshotMetrics(appStore.getProviderView("claude").status)).toEqual([
+    {
+      detail: null,
+      label: "Session",
+      value: "58%",
+    },
+    {
+      detail: null,
+      label: "Weekly",
+      value: "81%",
+    },
+  ]);
 });
 
 test("tracks scheduler state through explicit start and stop calls", async () => {

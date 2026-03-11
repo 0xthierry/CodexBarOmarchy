@@ -2,7 +2,12 @@ import { readChromiumCookies } from "@/runtime/browser-cookies/chromium.ts";
 import { readFirefoxCookies } from "@/runtime/browser-cookies/firefox.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
 import type { ClaudeWebSessionSnapshot } from "@/runtime/providers/claude-web-models.ts";
-import { isRecord, parseJsonText, readString } from "@/runtime/providers/shared.ts";
+import {
+  isRecord,
+  parseJsonText,
+  readFiniteNumber,
+  readString,
+} from "@/runtime/providers/shared.ts";
 
 const sanitizeClaudeSessionToken = (value: string): string | null => {
   const normalizedValue = value.trim().replace(/^cookie:\s*/iu, "");
@@ -71,7 +76,18 @@ const fetchClaudeOrganization = async (
     return null;
   }
 
-  const organizationId = readString(firstOrganization, "id");
+  const organizationId =
+    readString(firstOrganization, "uuid") ??
+    readString(firstOrganization, "id") ??
+    (() => {
+      const numericId = readFiniteNumber(firstOrganization, "id");
+
+      if (numericId === null) {
+        return null;
+      }
+
+      return String(numericId);
+    })();
 
   if (organizationId === null) {
     return null;

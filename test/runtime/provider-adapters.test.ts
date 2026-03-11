@@ -1610,7 +1610,7 @@ test("claude web manual mode does not fall back to the token file", async () => 
   expect(fixture.httpRequests).toEqual([]);
 });
 
-test("claude auto falls back to local stats when oauth usage is rate limited and slash status is unavailable", async () => {
+test("claude cli source fails when slash status output does not include usage metrics", async () => {
   const config = createConfig();
   const fixture = await createHostFixture({
     commands: {
@@ -1624,178 +1624,12 @@ test("claude auto falls back to local stats when oauth usage is rate limited and
         stderr: "",
         stdout: "2.1.71 (Claude Code)\n",
       },
-      "claude auth status --json": {
-        exitCode: 0,
-        stderr: "",
-        stdout: JSON.stringify({
-          email: "local@example.com",
-          loggedIn: true,
-          subscriptionType: "max",
-        }),
-      },
-    },
-    httpResponses: {
-      "GET https://api.anthropic.com/api/oauth/usage": [
-        createJsonResponse(
-          {
-            error: {
-              message: "Rate limited.",
-              type: "rate_limit_error",
-            },
-          },
-          429,
-        ),
-      ],
     },
     which: {
       claude: "/usr/bin/claude",
     },
   });
-  const credentialsPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
-  const statePath = join(fixture.homeDirectory, ".claude", ".claude.json");
-  const statsPath = join(fixture.homeDirectory, ".claude", "stats-cache.json");
   const providerAdapters = createRuntimeProviderAdapters(fixture.host);
-
-  await writeJson(credentialsPath, {
-    claudeAiOauth: {
-      accessToken: "valid-access-token",
-      expiresAt: Date.parse("2026-03-09T00:00:00.000Z"),
-      refreshToken: "refresh-token",
-      subscriptionType: "max",
-    },
-  });
-  await writeJson(statePath, {
-    emailAddress: "local-state@example.com",
-  });
-  await writeJson(statsPath, {
-    dailyActivity: [
-      {
-        date: "2026-03-07",
-        messageCount: 90,
-        sessionCount: 3,
-        toolCallCount: 17,
-      },
-      {
-        date: "2026-03-08",
-        messageCount: 125,
-        sessionCount: 4,
-        toolCallCount: 23,
-      },
-    ],
-    dailyModelTokens: [
-      {
-        date: "2026-03-07",
-        tokensByModel: {
-          "claude-opus-4-6": 4000,
-        },
-      },
-      {
-        date: "2026-03-08",
-        tokensByModel: {
-          "claude-opus-4-6": 12_000,
-          "claude-sonnet-4-5-20250929": 3000,
-        },
-      },
-    ],
-  });
-
-  const refreshResult = await providerAdapters.claude.refresh({
-    config,
-    providerConfig: {
-      ...config.providers.claude,
-      source: "cli",
-    },
-  });
-
-  expect(refreshResult.status).toBe("success");
-  expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
-  expect(refreshResult.snapshot?.identity.accountEmail).toBe("local@example.com");
-  expect(refreshResult.snapshot?.identity.planLabel).toBe("max");
-  expect(refreshResult.snapshot?.version).toBe("2.1.71");
-  expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
-    {
-      detail: "2026-03-08",
-      label: "Tokens",
-      value: "15000",
-    },
-    {
-      detail: "2026-03-08",
-      label: "Messages",
-      value: "125",
-    },
-    {
-      detail: "2026-03-08",
-      label: "Sessions",
-      value: "4",
-    },
-    {
-      detail: "2026-03-08",
-      label: "Tools",
-      value: "23",
-    },
-  ]);
-  expect(
-    fixture.commandRuns.map((record) => createCommandKey(record.command, record.args)),
-  ).toEqual(["claude", "claude --version", "claude auth status --json"]);
-});
-
-test("claude local fallback rejects logged-out auth status even when stats are still present", async () => {
-  const config = createConfig();
-  const fixture = await createHostFixture({
-    commands: {
-      claude: {
-        exitCode: 0,
-        stderr: "",
-        stdout: "Unknown skill: status\n",
-      },
-      "claude auth status --json": {
-        exitCode: 0,
-        stderr: "",
-        stdout: JSON.stringify({
-          email: "logged-out@example.com",
-          loggedIn: false,
-          subscriptionType: "max",
-        }),
-      },
-    },
-    httpResponses: {
-      "GET https://api.anthropic.com/api/oauth/usage": [
-        createJsonResponse(
-          {
-            error: {
-              message: "Rate limited.",
-            },
-          },
-          429,
-        ),
-      ],
-    },
-    which: {
-      claude: "/usr/bin/claude",
-    },
-  });
-  const credentialsPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
-  const statsPath = join(fixture.homeDirectory, ".claude", "stats-cache.json");
-  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
-
-  await writeJson(credentialsPath, {
-    claudeAiOauth: {
-      accessToken: "valid-access-token",
-      expiresAt: Date.parse("2026-03-09T00:00:00.000Z"),
-      refreshToken: "refresh-token",
-      subscriptionType: "max",
-    },
-  });
-  await writeJson(statsPath, {
-    dailyActivity: [
-      {
-        date: "2026-03-08",
-        messageCount: 125,
-        sessionCount: 4,
-        toolCallCount: 23,
-      },
-    ],
-  });
 
   const refreshResult = await providerAdapters.claude.refresh({
     config,
@@ -1806,7 +1640,10 @@ test("claude local fallback rejects logged-out auth status even when stats are s
   });
 
   expect(refreshResult.status).toBe("error");
-  expect(refreshResult.message).toBe("Claude auth status reports that the CLI is logged out.");
+  expect(refreshResult.message).toBe("Claude CLI output did not contain usage metrics.");
+  expect(
+    fixture.commandRuns.map((record) => createCommandKey(record.command, record.args)),
+  ).toEqual(["claude", "claude --version"]);
 });
 
 test("claude returns a refresh error when the oauth usage request throws", async () => {

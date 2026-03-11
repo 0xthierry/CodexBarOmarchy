@@ -73,6 +73,11 @@ interface TuiTabViewModel {
   selected: boolean;
 }
 
+interface TuiUsageBannerViewModel {
+  text: string;
+  tone: "error" | "status";
+}
+
 interface TuiModalViewModel {
   choices: TuiSettingsChoice[];
   detailLines: string[];
@@ -96,7 +101,7 @@ interface TuiViewModel {
   tabs: TuiTabViewModel[];
   title: string;
   usageLines: string[];
-  usageStatusLine: string | null;
+  usageBanner: TuiUsageBannerViewModel | null;
 }
 
 export {
@@ -112,5 +117,6 @@ export {
   type TuiSettingsItemDescriptor,
   type TuiTabViewModel,
   type TuiTokenAccountEditorState,
+  type TuiUsageBannerViewModel,
   type TuiViewModel,
 };

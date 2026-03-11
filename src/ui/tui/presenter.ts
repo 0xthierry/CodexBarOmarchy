@@ -5,6 +5,7 @@ import type {
   ProviderView,
   TuiLocalState,
   TuiSettingsItemDescriptor,
+  TuiUsageBannerViewModel,
 } from "@/ui/tui/types.ts";
 import type { TuiModalViewModel, TuiTabViewModel, TuiViewModel } from "@/ui/tui/types.ts";
 import type { AppStoreState } from "@/core/store/state.ts";
@@ -449,7 +450,7 @@ const createUsageLines = (providerView: ProviderView): string[] => {
 
   if (displayMetrics.length === 0) {
     return detailLines.length === 0
-      ? ["No usage data yet.", "Press r to refresh the selected provider."]
+      ? ["No usage data yet, try another source in the settings."]
       : detailLines;
   }
 
@@ -468,10 +469,6 @@ const createUsageLines = (providerView: ProviderView): string[] => {
       ...(includeSeparator ? [""] : []),
     ];
   });
-
-  if (providerView.status.latestError !== null) {
-    lines.push("", `Latest error: ${providerView.status.latestError}`);
-  }
 
   const { providerCost } = providerView.status.usage;
 
@@ -495,7 +492,14 @@ const createUsageLines = (providerView: ProviderView): string[] => {
   return lines;
 };
 
-const createUsageStatusLine = (providerView: ProviderView): string | null => {
+const createUsageBanner = (providerView: ProviderView): TuiUsageBannerViewModel | null => {
+  if (providerView.status.latestError !== null) {
+    return {
+      text: providerView.status.latestError,
+      tone: "error",
+    };
+  }
+
   const { serviceStatus } = providerView.status;
 
   if (serviceStatus === null || serviceStatus.indicator === "none") {
@@ -503,10 +507,16 @@ const createUsageStatusLine = (providerView: ProviderView): string | null => {
   }
 
   if (typeof serviceStatus.description === "string" && serviceStatus.description.trim() !== "") {
-    return serviceStatus.description;
+    return {
+      text: serviceStatus.description,
+      tone: "status",
+    };
   }
 
-  return formatProviderHealthLabel(serviceStatus);
+  return {
+    text: formatProviderHealthLabel(serviceStatus),
+    tone: "status",
+  };
 };
 
 const createDetailsLines = (providerView: ProviderView): string[] => {
@@ -711,8 +721,8 @@ const createTuiViewModel = (
     modal: localState.isSettingsOpen ? createModalViewModel(selectedProvider, localState) : null,
     tabs: createTabs(state, localState),
     title: appTitle,
+    usageBanner: createUsageBanner(selectedProvider),
     usageLines: createUsageLines(selectedProvider),
-    usageStatusLine: createUsageStatusLine(selectedProvider),
   };
 };
 

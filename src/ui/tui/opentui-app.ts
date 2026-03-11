@@ -341,8 +341,10 @@ const mountOpenTuiApp = (options: MountOpenTuiAppOptions): MountedTuiApp => {
     }
 
     usageText.content = viewModel.usageLines.join("\n");
-    usageStatusBox.visible = viewModel.usageStatusLine !== null;
-    usageStatusText.content = viewModel.usageStatusLine ?? "";
+    usageStatusBox.visible = viewModel.usageBanner !== null;
+    usageStatusText.content = viewModel.usageBanner?.text ?? "";
+    usageStatusText.fg =
+      viewModel.usageBanner?.tone === "error" ? options.theme.color1 : options.theme.color3;
     detailsText.content = viewModel.detailsLines.join("\n");
     configText.content = viewModel.configLines.join("\n");
     menuText.content = viewModel.menuLines.join("\n");

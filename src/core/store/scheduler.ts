@@ -1,5 +1,5 @@
-const defaultRefreshSchedulerIntervalMs = 60_000;
-const minimumRefreshSchedulerIntervalMs = 60_000;
+const defaultRefreshSchedulerIntervalMs = 300_000;
+const minimumRefreshSchedulerIntervalMs = 300_000;
 
 const normalizeRefreshSchedulerIntervalMs = (intervalMs: number): number => {
   if (!Number.isFinite(intervalMs)) {

@@ -271,3 +271,119 @@ test("resolveClaudeWebSession auto reads Firefox sessionKey cookies and fetches 
     await rm(homeDirectory, { force: true, recursive: true });
   }
 });
+
+test("resolveClaudeWebSession accepts Claude organizations that expose uuid plus numeric id", async () => {
+  const homeDirectory = await mkdtemp(join(tmpdir(), "agent-stats-claude-web-auth-"));
+
+  try {
+    const firefoxRoot = join(homeDirectory, ".config", "mozilla", "firefox");
+    const profilePath = join(firefoxRoot, "default-release");
+    const cookieDbPath = join(profilePath, "cookies.sqlite");
+
+    await mkdir(profilePath, { recursive: true });
+    await writeFile(
+      join(firefoxRoot, "profiles.ini"),
+      ["[Profile0]", "Name=default-release", "IsRelative=1", "Path=default-release", ""].join("\n"),
+    );
+
+    const database = new Database(cookieDbPath);
+    database.exec(`
+      create table moz_cookies (
+        id integer primary key,
+        originAttributes text not null default '',
+        name text not null,
+        value text not null,
+        host text not null,
+        path text not null,
+        expiry integer not null,
+        lastAccessed integer not null,
+        creationTime integer not null,
+        isSecure integer not null,
+        isHttpOnly integer not null,
+        inBrowserElement integer not null default 0,
+        sameSite integer not null default 0,
+        rawSameSite integer not null default 0,
+        schemeMap integer not null default 0
+      );
+    `);
+    database
+      .query(`
+        insert into moz_cookies (
+          name,
+          value,
+          host,
+          path,
+          expiry,
+          lastAccessed,
+          creationTime,
+          isSecure,
+          isHttpOnly
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run("sessionKey", "sk-ant-firefox-session", ".claude.ai", "/", 4_102_444_800, 0, 0, 1, 1);
+    database.close();
+
+    const requestLog: string[] = [];
+    const host = createHost(homeDirectory, async (url, options) => {
+      requestLog.push(url);
+
+      if (url === "https://claude.ai/api/account") {
+        expect(options?.headers).toEqual({
+          Accept: "application/json",
+          Cookie: "sessionKey=sk-ant-firefox-session",
+        });
+
+        return {
+          bodyText: JSON.stringify({
+            email_address: "claude@example.com",
+          }),
+          headers: {
+            "content-type": "application/json",
+          },
+          statusCode: 200,
+        };
+      }
+
+      if (url === "https://claude.ai/api/organizations") {
+        expect(options?.headers).toEqual({
+          Accept: "application/json",
+          Cookie: "sessionKey=sk-ant-firefox-session",
+        });
+
+        return {
+          bodyText: JSON.stringify([
+            {
+              id: 18_476_342,
+              name: "Claude Team",
+              uuid: "3911a5f6-9247-4977-9a92-d2b8a515570d",
+            },
+          ]),
+          headers: {
+            "content-type": "application/json",
+          },
+          statusCode: 200,
+        };
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const session = await resolveClaudeWebSession(host, {
+      cookieSource: "auto",
+      manualSessionToken: explicitNull,
+    });
+
+    expect(requestLog.toSorted()).toEqual([
+      "https://claude.ai/api/account",
+      "https://claude.ai/api/organizations",
+    ]);
+    expect(session).toEqual({
+      accountEmail: "claude@example.com",
+      organizationId: "3911a5f6-9247-4977-9a92-d2b8a515570d",
+      organizationName: "Claude Team",
+      sessionToken: "sk-ant-firefox-session",
+    });
+  } finally {
+    await rm(homeDirectory, { force: true, recursive: true });
+  }
+});
