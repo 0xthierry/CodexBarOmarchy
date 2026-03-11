@@ -438,14 +438,20 @@ test("codex attaches web extras when manual cookies are enabled", async () => {
         createJsonResponse({
           additional_rate_limits: [
             {
-              label: "Agent",
-              remaining_percent: 81,
-              reset_at: "2026-03-09T00:00:00.000Z",
+              limit_name: "GPT-5.3-Codex-Spark",
+              rate_limit: {
+                primary_window: {
+                  reset_at: 1_773_181_200,
+                  used_percent: 19,
+                },
+              },
             },
           ],
           code_review_rate_limit: {
-            remaining_percent: 64,
-            reset_at: "2026-03-08T18:00:00.000Z",
+            primary_window: {
+              reset_at: 1_773_116_400,
+              used_percent: 36,
+            },
           },
           purchase_url: "https://chatgpt.com/buy-credits",
         }),
@@ -519,9 +525,9 @@ test("codex attaches web extras when manual cookies are enabled", async () => {
     dashboard: {
       additionalRateLimits: [
         {
-          label: "Agent",
+          label: "GPT-5.3-Codex-Spark",
           remainingPercent: 81,
-          resetAt: "2026-03-09T00:00:00.000Z",
+          resetAt: "2026-03-10T22:20:00.000Z",
         },
       ],
       approximateCreditUsage: {
@@ -531,7 +537,7 @@ test("codex attaches web extras when manual cookies are enabled", async () => {
       codeReviewWindow: {
         label: "Code review",
         remainingPercent: 64,
-        resetAt: "2026-03-08T18:00:00.000Z",
+        resetAt: "2026-03-10T04:20:00.000Z",
       },
       creditHistory: [
         {

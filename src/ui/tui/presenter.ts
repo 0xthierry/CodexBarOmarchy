@@ -334,11 +334,12 @@ const getOrderedUsageMetrics = (
   }
 
   metrics.push(...usage.additional);
+
   return metrics;
 };
 
 const createProviderDetailUsageLines = (providerView: ProviderView): string[] => {
-  const {providerDetails} = providerView.status;
+  const { providerDetails } = providerView.status;
 
   if (providerDetails === null) {
     return [];
@@ -347,33 +348,22 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
   if (providerDetails.kind === "codex") {
     const lines: string[] = [];
 
-    if (providerDetails.pace !== null) {
-      lines.push("", providerDetails.pace.statusText);
-    }
-
     const codeReviewWindow = providerDetails.dashboard?.codeReviewWindow ?? null;
 
-    if (codeReviewWindow !== null) {
+    if (codeReviewWindow !== null && codeReviewWindow.remainingPercent !== null) {
       const remaining = codeReviewWindow.remainingPercent;
 
-      lines.push(
-        "",
-        `Code review ${remaining === null ? "unknown" : `${String(remaining)}% remaining`}`,
-      );
+      lines.push("", `Code review ${String(remaining)}% remaining`);
     }
 
     if (providerDetails.dashboard !== null) {
-      if (providerDetails.dashboard.usageBreakdown.length > 0) {
-        lines.push(`Usage breakdown ${String(providerDetails.dashboard.usageBreakdown.length)}d`);
-      }
-
       if (providerDetails.dashboard.creditHistory.length > 0) {
         lines.push(
           `Credit history ${String(providerDetails.dashboard.creditHistory.length)} events`,
         );
       }
 
-      const {approximateCreditUsage} = providerDetails.dashboard;
+      const { approximateCreditUsage } = providerDetails.dashboard;
 
       if (
         approximateCreditUsage !== null &&
@@ -395,19 +385,21 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
     }
 
     if (providerDetails.tokenCost !== null) {
+      lines.push("", "Cost:");
+
       if (providerDetails.tokenCost.today !== null) {
         lines.push(
           providerDetails.tokenCost.today.costUsd === null
-            ? "Token cost today unavailable"
-            : `Token cost today USD ${providerDetails.tokenCost.today.costUsd.toFixed(2)}`,
+            ? "Estimated token cost today: unavailable"
+            : `Estimated token cost today: USD ${providerDetails.tokenCost.today.costUsd.toFixed(2)}`,
         );
       }
 
       if (providerDetails.tokenCost.last30Days !== null) {
         lines.push(
           providerDetails.tokenCost.last30Days.costUsd === null
-            ? "Token cost 30d unavailable"
-            : `Token cost 30d USD ${providerDetails.tokenCost.last30Days.costUsd.toFixed(2)}`,
+            ? "Estimated token cost 30d: unavailable"
+            : `Estimated token cost 30d: USD ${providerDetails.tokenCost.last30Days.costUsd.toFixed(2)}`,
         );
       }
     }
@@ -418,24 +410,22 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
   if (providerDetails.kind === "claude") {
     const lines: string[] = [];
 
-    if (providerDetails.pace !== null) {
-      lines.push("", providerDetails.pace.statusText);
-    }
-
     if (providerDetails.tokenCost !== null) {
+      lines.push("", "Cost:");
+
       if (providerDetails.tokenCost.today !== null) {
         lines.push(
           providerDetails.tokenCost.today.costUsd === null
-            ? "Token cost today unavailable"
-            : `Token cost today USD ${providerDetails.tokenCost.today.costUsd.toFixed(2)}`,
+            ? "Estimated token cost today: unavailable"
+            : `Estimated token cost today: USD ${providerDetails.tokenCost.today.costUsd.toFixed(2)}`,
         );
       }
 
       if (providerDetails.tokenCost.last30Days !== null) {
         lines.push(
           providerDetails.tokenCost.last30Days.costUsd === null
-            ? "Token cost 30d unavailable"
-            : `Token cost 30d USD ${providerDetails.tokenCost.last30Days.costUsd.toFixed(2)}`,
+            ? "Estimated token cost 30d: unavailable"
+            : `Estimated token cost 30d: USD ${providerDetails.tokenCost.last30Days.costUsd.toFixed(2)}`,
         );
       }
     }
@@ -445,21 +435,8 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
 
   const lines: string[] = [];
 
-  if (providerDetails.quotaDrilldown !== null) {
-    lines.push(
-      "",
-      `Quota buckets flash ${String(providerDetails.quotaDrilldown.flashBuckets.length)}`,
-      `Quota buckets pro ${String(providerDetails.quotaDrilldown.proBuckets.length)}`,
-    );
-
-    if (providerDetails.quotaDrilldown.otherBuckets.length > 0) {
-      lines.push(
-        `Quota buckets other ${String(providerDetails.quotaDrilldown.otherBuckets.length)}`,
-      );
-    }
-  }
-
   if (providerDetails.incidents.length > 0) {
+    lines.push("");
     lines.push(`Incidents ${String(providerDetails.incidents.length)}`);
   }
 
@@ -468,9 +445,12 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
 
 const createUsageLines = (providerView: ProviderView): string[] => {
   const displayMetrics = getOrderedUsageMetrics(providerView);
+  const detailLines = createProviderDetailUsageLines(providerView);
 
   if (displayMetrics.length === 0) {
-    return ["No usage data yet.", "Press r to refresh the selected provider."];
+    return detailLines.length === 0
+      ? ["No usage data yet.", "Press r to refresh the selected provider."]
+      : detailLines;
   }
 
   const lines = displayMetrics.flatMap((metric, metricIndex) => {
@@ -479,12 +459,13 @@ const createUsageLines = (providerView: ProviderView): string[] => {
     const ratio = ratioMatch === null ? null : Math.max(0, Math.min(100, Number(ratioMatch[1])));
     const filledCount = ratio === null ? 0 : Math.round((ratio / 100) * 16);
     const meter = ratio === null ? "" : `${"█".repeat(filledCount)}${"░".repeat(16 - filledCount)}`;
+    const includeSeparator = metricIndex !== displayMetrics.length - 1 && meter !== "";
 
     return [
       `${metric.label.padEnd(12, " ")}${metric.value}`,
       ...(meter === "" ? [] : [meter]),
       ...(detail === null ? [] : [detail]),
-      ...(metricIndex === displayMetrics.length - 1 ? [] : [""]),
+      ...(includeSeparator ? [""] : []),
     ];
   });
 
@@ -509,7 +490,7 @@ const createUsageLines = (providerView: ProviderView): string[] => {
     lines.push(formatProviderCostLabel(providerCost));
   }
 
-  lines.push(...createProviderDetailUsageLines(providerView));
+  lines.push(...detailLines);
 
   return lines;
 };
@@ -550,17 +531,9 @@ const createDetailsLines = (providerView: ProviderView): string[] => {
     if (providerView.status.providerDetails.accountOrg !== null) {
       rows.push(["org", providerView.status.providerDetails.accountOrg]);
     }
-
-    if (providerView.status.providerDetails.pace !== null) {
-      rows.push(["pace", providerView.status.providerDetails.pace.statusText]);
-    }
   }
 
-  if (providerView.status.providerDetails?.kind === "codex") {
-    if (providerView.status.providerDetails.pace !== null) {
-      rows.push(["pace", providerView.status.providerDetails.pace.statusText]);
-    }
-  }
+  if (providerView.status.providerDetails?.kind === "codex") {}
 
   if (providerView.status.providerDetails?.kind === "gemini") {
     if (providerView.status.providerDetails.incidents.length > 0) {

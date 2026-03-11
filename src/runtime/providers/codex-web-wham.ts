@@ -22,7 +22,7 @@ const fetchCodexWhamJson = async (
   host: RuntimeHost,
   session: CodexWebAuthSession,
   path: string,
-): Promise<unknown | null> => {
+): Promise<unknown> => {
   const response = await host.http.request(`${codexWhamBaseUrl}${path}`, {
     headers: {
       Accept: "application/json",
@@ -44,6 +44,22 @@ const fetchCodexWhamJson = async (
   }
 };
 
+const readResetAt = (value: Record<string, unknown>): string | null => {
+  const stringValue = readString(value, "reset_at");
+
+  if (stringValue !== null) {
+    return stringValue;
+  }
+
+  const numericValue = readFiniteNumber(value, "reset_at");
+
+  if (numericValue === null) {
+    return null;
+  }
+
+  return new Date(numericValue * 1000).toISOString();
+};
+
 const toDashboardRateLimitSnapshot = (
   label: string,
   value: unknown,
@@ -52,17 +68,19 @@ const toDashboardRateLimitSnapshot = (
     return null;
   }
 
+  const primaryWindow =
+    readNestedRecord(readNestedRecord(value, "rate_limit") ?? value, "primary_window") ?? value;
   const remainingPercent =
-    readFiniteNumber(value, "remaining_percent") ??
+    readFiniteNumber(primaryWindow, "remaining_percent") ??
     (() => {
-      const usedPercent = readFiniteNumber(value, "used_percent");
+      const usedPercent = readFiniteNumber(primaryWindow, "used_percent");
       return usedPercent === null ? null : Math.max(0, 100 - usedPercent);
     })();
 
   return {
     label,
     remainingPercent,
-    resetAt: readString(value, "reset_at"),
+    resetAt: readResetAt(primaryWindow),
   };
 };
 
@@ -142,7 +160,9 @@ const fetchCodexWhamDashboard = async (
     .filter((entry): entry is Record<string, unknown> => isRecord(entry))
     .map((entry, index) =>
       toDashboardRateLimitSnapshot(
-        readString(entry, "label") ?? `Additional ${String(index + 1)}`,
+        readString(entry, "label") ??
+          readString(entry, "limit_name") ??
+          `Additional ${String(index + 1)}`,
         entry,
       ),
     )

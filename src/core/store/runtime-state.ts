@@ -102,12 +102,6 @@ interface ProviderIncidentSnapshot {
   updatedAt: string | null;
 }
 
-interface PaceSnapshot {
-  daysRemaining: number | null;
-  statusText: string;
-  windowLabel: string;
-}
-
 interface CodexDashboardRateLimitSnapshot {
   label: string;
   remainingPercent: number | null;
@@ -142,14 +136,12 @@ interface CodexDashboardSnapshot {
 interface CodexProviderDetailsSnapshot {
   dashboard: CodexDashboardSnapshot | null;
   kind: "codex";
-  pace: PaceSnapshot | null;
   tokenCost: TokenCostSnapshot | null;
 }
 
 interface ClaudeProviderDetailsSnapshot {
   accountOrg: string | null;
   kind: "claude";
-  pace: PaceSnapshot | null;
   tokenCost: TokenCostSnapshot | null;
 }
 
@@ -350,7 +342,6 @@ export {
   type TokenCostAggregateSnapshot,
   type TokenCostDailyPoint,
   type TokenCostSnapshot,
-  type PaceSnapshot,
   type CodexDashboardSnapshot,
   type CodexDashboardRateLimitSnapshot,
   type CodexCreditHistoryPoint,

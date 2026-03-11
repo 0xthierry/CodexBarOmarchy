@@ -7,7 +7,6 @@ import type {
   ProviderRefreshActionResult,
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
-import { createWeeklyPaceSnapshot } from "@/core/usage/pace.ts";
 import type { RuntimeCommandResult, RuntimeHost } from "@/runtime/host.ts";
 import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
 import { resolveClaudeWebSession } from "@/runtime/providers/claude-web-auth.ts";
@@ -701,7 +700,6 @@ const parseClaudeOAuthSnapshot = (
     withProviderDetails(snapshot, {
       accountOrg: explicitNull,
       kind: "claude",
-      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
       tokenCost: explicitNull,
     }),
   );
@@ -753,7 +751,6 @@ const parseClaudeCliSnapshot = (
     withProviderDetails(snapshot, {
       accountOrg: planMatch?.[1]?.trim() ?? explicitNull,
       kind: "claude",
-      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
       tokenCost: explicitNull,
     }),
   );
@@ -781,7 +778,6 @@ const parseClaudeWebSnapshot = (
       withProviderDetails(snapshot, {
         accountOrg: readString(tokenPayload, "planLabel"),
         kind: "claude",
-        pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
         tokenCost: explicitNull,
       }),
     );
@@ -820,7 +816,6 @@ const parseClaudeWebSnapshot = (
     withProviderDetails(snapshot, {
       accountOrg: planLabel,
       kind: "claude",
-      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
       tokenCost: explicitNull,
     }),
   );
@@ -853,7 +848,6 @@ const parseClaudeLocalSnapshot = (
     withProviderDetails(snapshot, {
       accountOrg: explicitNull,
       kind: "claude",
-      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
       tokenCost: explicitNull,
     }),
   );
@@ -1155,12 +1149,6 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
           providerDetails: {
             accountOrg: existingDetails?.accountOrg ?? result.snapshot.identity.planLabel,
             kind: "claude",
-            pace:
-              existingDetails?.pace ??
-              createWeeklyPaceSnapshot(
-                result.snapshot.usage.rateWindows,
-                result.snapshot.updatedAt,
-              ),
             tokenCost,
           },
         },
@@ -1221,7 +1209,6 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
           withProviderDetails(snapshot, {
             accountOrg: session.organizationName,
             kind: "claude",
-            pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
             tokenCost: explicitNull,
           }),
         );

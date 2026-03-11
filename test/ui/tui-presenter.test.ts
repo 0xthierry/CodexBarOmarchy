@@ -235,11 +235,6 @@ test("renders Codex provider details from the structured providerDetails snapsho
         ],
       },
       kind: "codex",
-      pace: {
-        daysRemaining: 1.8,
-        statusText: "Weekly: ~1.8d remaining at current pace",
-        windowLabel: "Weekly",
-      },
       tokenCost: {
         daily: [
           {
@@ -309,14 +304,13 @@ test("renders Codex provider details from the structured providerDetails snapsho
     createInitialLocalState(),
   );
 
-  expect(viewModel.usageLines.join("\n")).toContain("Weekly: ~1.8d remaining at current pace");
   expect(viewModel.usageLines.join("\n")).toContain("Code review 64% remaining");
-  expect(viewModel.usageLines.join("\n")).toContain("Usage breakdown 1d");
+  expect(viewModel.usageLines.join("\n")).toContain("Weekly");
   expect(viewModel.usageLines.join("\n")).toContain("Credit history 1 events");
   expect(viewModel.usageLines.join("\n")).toContain("Credits approx 12 cloud / 3 local");
-  expect(viewModel.usageLines.join("\n")).toContain("Token cost today USD 1.23");
-  expect(viewModel.usageLines.join("\n")).toContain("Token cost 30d USD 4.56");
-  expect(viewModel.detailsLines.join("\n")).toContain("pace");
+  expect(viewModel.usageLines.join("\n")).toContain("Cost:");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost today: USD 1.23");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost 30d: USD 4.56");
 });
 
 test("renders Claude provider details from the structured providerDetails snapshot", () => {
@@ -335,11 +329,6 @@ test("renders Claude provider details from the structured providerDetails snapsh
     providerDetails: {
       accountOrg: "Claude Team",
       kind: "claude",
-      pace: {
-        daysRemaining: 2.4,
-        statusText: "Weekly: ~2.4d remaining at current pace",
-        windowLabel: "Weekly",
-      },
       tokenCost: {
         daily: [
           {
@@ -405,11 +394,103 @@ test("renders Claude provider details from the structured providerDetails snapsh
     createInitialLocalState(),
   );
 
-  expect(viewModel.usageLines.join("\n")).toContain("Weekly: ~2.4d remaining at current pace");
-  expect(viewModel.usageLines.join("\n")).toContain("Token cost today USD 6.61");
-  expect(viewModel.usageLines.join("\n")).toContain("Token cost 30d USD 12.34");
+  expect(viewModel.usageLines.join("\n")).toContain("Cost:");
+  expect(viewModel.usageLines.join("\n")).toContain("Weekly");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost today: USD 6.61");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost 30d: USD 12.34");
   expect(viewModel.detailsLines.join("\n")).toContain("org");
   expect(viewModel.detailsLines.join("\n")).toContain("Claude Team");
+});
+
+test("keeps Claude local counters compact so cost lines remain visible", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: "claude@example.com",
+      planLabel: "max",
+    },
+    latestError: null,
+    providerDetails: {
+      accountOrg: "max",
+      kind: "claude",
+      tokenCost: {
+        daily: [],
+        last30Days: {
+          costUsd: 795.79,
+          tokens: 1000,
+          unpricedModels: [],
+        },
+        today: {
+          costUsd: 15.18,
+          tokens: 100,
+          unpricedModels: [],
+        },
+        updatedAt: "2026-03-11T12:00:00.000Z",
+      },
+    },
+    serviceStatus: {
+      description: "Partially Degraded Service",
+      indicator: "minor",
+      updatedAt: "2026-03-11T12:00:00.000Z",
+    },
+    sourceLabel: "cli",
+    state: "ready",
+    updatedAt: "2026-03-11T12:00:00.000Z",
+    usage: {
+      additional: [
+        {
+          detail: "2026-03-07",
+          label: "Tokens",
+          value: "48319",
+        },
+        {
+          detail: "2026-03-07",
+          label: "Messages",
+          value: "3880",
+        },
+        {
+          detail: "2026-03-07",
+          label: "Sessions",
+          value: "4",
+        },
+        {
+          detail: "2026-03-07",
+          label: "Tools",
+          value: "151",
+        },
+      ],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: null,
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.usageLines.join("\n")).toContain("Tokens      48319\n2026-03-07\nMessages");
+  expect(viewModel.usageLines.join("\n")).toContain("Cost:");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost today: USD 15.18");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost 30d: USD 795.79");
+  expect(viewModel.usageStatusLine).toBe("Partially Degraded Service");
 });
 
 test("renders unavailable token-cost text when pricing is unknown", () => {
@@ -428,7 +509,6 @@ test("renders unavailable token-cost text when pricing is unknown", () => {
     providerDetails: {
       dashboard: null,
       kind: "codex",
-      pace: null,
       tokenCost: {
         daily: [
           {
@@ -494,8 +574,9 @@ test("renders unavailable token-cost text when pricing is unknown", () => {
     createInitialLocalState(),
   );
 
-  expect(viewModel.usageLines.join("\n")).toContain("Token cost today unavailable");
-  expect(viewModel.usageLines.join("\n")).toContain("Token cost 30d unavailable");
+  expect(viewModel.usageLines.join("\n")).toContain("Cost:");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost today: unavailable");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost 30d: unavailable");
 });
 
 test("renders Gemini quota drill-down and incidents from providerDetails", () => {
@@ -587,9 +668,7 @@ test("renders Gemini quota drill-down and incidents from providerDetails", () =>
     createInitialLocalState(),
   );
 
-  expect(viewModel.usageLines.join("\n")).toContain("Quota buckets flash 1");
-  expect(viewModel.usageLines.join("\n")).toContain("Quota buckets pro 1");
-  expect(viewModel.usageLines.join("\n")).toContain("Quota buckets other 1");
+  expect(viewModel.usageLines.join("\n")).not.toContain("Quota buckets");
   expect(viewModel.usageLines.join("\n")).toContain("Incidents 1");
   expect(viewModel.detailsLines.join("\n")).toContain("incident");
   expect(viewModel.detailsLines.join("\n")).toContain("Minor issue.");

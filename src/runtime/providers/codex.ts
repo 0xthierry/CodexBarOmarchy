@@ -4,7 +4,6 @@ import type {
   ProviderRefreshActionResult,
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
-import { createWeeklyPaceSnapshot } from "@/core/usage/pace.ts";
 import type { RuntimeCommandLineSession, RuntimeHost } from "@/runtime/host.ts";
 import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
 import { resolveCodexWebSession } from "@/runtime/providers/codex-web-auth.ts";
@@ -468,7 +467,6 @@ const parseCodexOAuthSnapshot = (
     withProviderDetails(snapshot, {
       dashboard: explicitNull,
       kind: "codex",
-      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
       tokenCost: explicitNull,
     }),
   );
@@ -728,7 +726,6 @@ const parseCodexCliSnapshot = (
     withProviderDetails(snapshot, {
       dashboard: explicitNull,
       kind: "codex",
-      pace: createWeeklyPaceSnapshot(snapshot.usage.rateWindows, snapshot.updatedAt),
       tokenCost: explicitNull,
     }),
   );
@@ -891,13 +888,6 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
             providerDetails: {
               dashboard,
               kind: "codex",
-              pace:
-                result.snapshot.providerDetails?.kind === "codex"
-                  ? result.snapshot.providerDetails.pace
-                  : createWeeklyPaceSnapshot(
-                      result.snapshot.usage.rateWindows,
-                      result.snapshot.updatedAt,
-                    ),
               tokenCost:
                 result.snapshot.providerDetails?.kind === "codex"
                   ? result.snapshot.providerDetails.tokenCost
@@ -938,12 +928,6 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
           providerDetails: {
             dashboard: existingDetails?.dashboard ?? explicitNull,
             kind: "codex",
-            pace:
-              existingDetails?.pace ??
-              createWeeklyPaceSnapshot(
-                result.snapshot.usage.rateWindows,
-                result.snapshot.updatedAt,
-              ),
             tokenCost,
           },
         },
