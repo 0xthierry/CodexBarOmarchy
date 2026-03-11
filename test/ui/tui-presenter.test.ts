@@ -313,9 +313,17 @@ test("renders Codex provider details from the structured providerDetails snapsho
     createInitialLocalState(),
   );
 
-  expect(viewModel.usageLines.join("\n")).toContain("OpenAI credit balance\n\nCode review 36%");
   expect(viewModel.usageLines.join("\n")).toContain("Code review 36%");
   expect(viewModel.usageLines.join("\n")).toContain("GPT-5.3-Codex-Spark 19%");
+  expect(viewModel.usageLines.join("\n")).toContain(
+    "Code review 36%\n██████░░░░░░░░░░\nResets 10 Mar 18:00\n\nCredits     10.50\nOpenAI credit balance",
+  );
+  expect(viewModel.usageLines.join("\n")).toContain(
+    "Weekly      75%\n████████████░░░░\nResets 10 Mar 18:00\n\nGPT-5.3-Codex-Spark 19%",
+  );
+  expect(viewModel.usageLines.join("\n")).toContain(
+    "GPT-5.3-Codex-Spark 19%\n███░░░░░░░░░░░░░\nResets 10 Mar 19:00\n\nCode review 36%",
+  );
   expect(viewModel.usageLines.join("\n")).toContain("██████░░░░░░░░░░");
   expect(viewModel.usageLines.join("\n")).toContain("███░░░░░░░░░░░░░");
   expect(viewModel.usageLines.join("\n")).toContain("Resets 10 Mar 19:00");

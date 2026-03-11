@@ -321,6 +321,7 @@ const getOrderedUsageMetrics = (
     value: string;
   }[] = [];
   const { usage } = providerView.status;
+  const providerDetails = providerView.status.providerDetails;
 
   if (usage.windows.session !== null) {
     metrics.push(usage.windows.session);
@@ -342,27 +343,16 @@ const getOrderedUsageMetrics = (
     metrics.push(usage.windows.flash);
   }
 
-  if (usage.balances.credits !== null) {
+  const isCodexProvider = providerDetails?.kind === "codex";
+
+  if (!isCodexProvider && usage.balances.credits !== null) {
     metrics.push(usage.balances.credits);
   }
 
   metrics.push(...usage.additional);
 
-  if (providerView.status.providerDetails?.kind === "codex") {
-    const dashboard = providerView.status.providerDetails.dashboard;
-    const codeReviewWindow = dashboard?.codeReviewWindow ?? null;
-
-    if (codeReviewWindow !== null && codeReviewWindow.remainingPercent !== null) {
-      const usedPercent = invertRemainingPercent(codeReviewWindow.remainingPercent);
-
-      metrics.push({
-        detail: codeReviewWindow.resetAt,
-        label: codeReviewWindow.label,
-        meterPercent: usedPercent,
-        sectionBreakBefore: true,
-        value: `${String(usedPercent)}%`,
-      });
-    }
+  if (isCodexProvider) {
+    const dashboard = providerDetails.dashboard;
 
     for (const rateLimit of dashboard?.additionalRateLimits ?? []) {
       if (rateLimit.remainingPercent === null) {
@@ -376,6 +366,26 @@ const getOrderedUsageMetrics = (
         label: rateLimit.label,
         meterPercent: usedPercent,
         value: `${String(usedPercent)}%`,
+      });
+    }
+
+    const codeReviewWindow = dashboard?.codeReviewWindow ?? null;
+
+    if (codeReviewWindow !== null && codeReviewWindow.remainingPercent !== null) {
+      const usedPercent = invertRemainingPercent(codeReviewWindow.remainingPercent);
+
+      metrics.push({
+        detail: codeReviewWindow.resetAt,
+        label: codeReviewWindow.label,
+        meterPercent: usedPercent,
+        value: `${String(usedPercent)}%`,
+      });
+    }
+
+    if (usage.balances.credits !== null) {
+      metrics.push({
+        ...usage.balances.credits,
+        sectionBreakBefore: true,
       });
     }
   }
@@ -491,6 +501,7 @@ const createUsageLines = (providerView: ProviderView): string[] => {
   }
 
   const lines = displayMetrics.flatMap((metric, metricIndex) => {
+    const previousMetric = metricIndex === 0 ? null : (displayMetrics[metricIndex - 1] ?? null);
     const detail = describeMetric(metric.label, metric.detail);
     const ratioMatch = /^(\d+)(?:\.\d+)?%$/.exec(metric.value.trim());
     const ratio =
@@ -502,7 +513,12 @@ const createUsageLines = (providerView: ProviderView): string[] => {
     const filledCount = ratio === null ? 0 : Math.round((ratio / 100) * 16);
     const meter = ratio === null ? "" : `${"█".repeat(filledCount)}${"░".repeat(16 - filledCount)}`;
     const includeSeparator = metricIndex !== displayMetrics.length - 1 && meter !== "";
-    const prefixLines = metric.sectionBreakBefore === true ? [""] : [];
+    const previousMetricHasMeter =
+      previousMetric !== null &&
+      (previousMetric.meterPercent !== undefined ||
+        /^(\d+)(?:\.\d+)?%$/.test(previousMetric.value.trim()));
+    const prefixLines =
+      metric.sectionBreakBefore === true && !previousMetricHasMeter ? [""] : [];
     const metricLine =
       metric.label.length >= 12
         ? `${metric.label} ${metric.value}`
