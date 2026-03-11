@@ -210,7 +210,13 @@ test("renders Codex provider details from the structured providerDetails snapsho
     latestError: null,
     providerDetails: {
       dashboard: {
-        additionalRateLimits: [],
+        additionalRateLimits: [
+          {
+            label: "GPT-5.3-Codex-Spark",
+            remainingPercent: 81,
+            resetAt: "2026-03-10T19:00:00.000Z",
+          },
+        ],
         approximateCreditUsage: {
           cloudMessages: 12,
           localMessages: 3,
@@ -307,7 +313,12 @@ test("renders Codex provider details from the structured providerDetails snapsho
     createInitialLocalState(),
   );
 
-  expect(viewModel.usageLines.join("\n")).toContain("Code review 64% remaining");
+  expect(viewModel.usageLines.join("\n")).toContain("OpenAI credit balance\n\nCode review 36%");
+  expect(viewModel.usageLines.join("\n")).toContain("Code review 36%");
+  expect(viewModel.usageLines.join("\n")).toContain("GPT-5.3-Codex-Spark 19%");
+  expect(viewModel.usageLines.join("\n")).toContain("██████░░░░░░░░░░");
+  expect(viewModel.usageLines.join("\n")).toContain("███░░░░░░░░░░░░░");
+  expect(viewModel.usageLines.join("\n")).toContain("Resets 10 Mar 19:00");
   expect(viewModel.usageLines.join("\n")).toContain("Weekly");
   expect(viewModel.usageLines.join("\n")).toContain("Credit history 1 events");
   expect(viewModel.usageLines.join("\n")).toContain("Credits approx 12 cloud / 3 local");
@@ -497,6 +508,69 @@ test("keeps Claude local counters compact so cost lines remain visible", () => {
     text: "Partially Degraded Service",
     tone: "status",
   });
+});
+
+test("formats estimated token costs with grouped thousands separators", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "codex" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.codex.snapshot = {
+    identity: {
+      accountEmail: "codex@example.com",
+      planLabel: "pro",
+    },
+    latestError: null,
+    providerDetails: {
+      dashboard: null,
+      kind: "codex",
+      tokenCost: {
+        daily: [],
+        last30Days: {
+          costUsd: 1951.481028,
+          tokens: 100,
+          unpricedModels: [],
+        },
+        today: {
+          costUsd: 458.755806,
+          tokens: 10,
+          unpricedModels: [],
+        },
+        updatedAt: "2026-03-11T12:00:00.000Z",
+      },
+    },
+    serviceStatus: null,
+    sourceLabel: "oauth",
+    state: "ready",
+    updatedAt: "2026-03-11T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: "0.114.0",
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost today: USD 458.76");
+  expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost 30d: USD 1,951.48");
 });
 
 test("prefers refresh errors over service status in the usage banner", () => {

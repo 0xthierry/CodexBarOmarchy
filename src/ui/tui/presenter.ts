@@ -176,8 +176,14 @@ const formatProviderHealthLabel = (value: ProviderView["status"]["serviceStatus"
   return "Unknown";
 };
 
+const formatDecimalAmount = (value: number): string =>
+  value.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  });
+
 const formatCurrencyAmount = (value: number, currencyCode: string): string =>
-  `${currencyCode} ${value.toFixed(2)}`;
+  `${currencyCode} ${formatDecimalAmount(value)}`;
 
 const formatProviderCostLabel = (value: ProviderCostSnapshot): string => {
   const periodSuffix =
@@ -193,6 +199,8 @@ const getProviderCostPercent = (value: ProviderCostSnapshot): number | null => {
 
   return Math.max(0, Math.min(100, Math.round((value.used / value.limit) * 100)));
 };
+
+const invertRemainingPercent = (value: number): number => Math.max(0, 100 - value);
 
 const describeMetric = (label: string, detail: string | null): string | null => {
   if (typeof detail === "string" && detail.trim() !== "") {
@@ -301,11 +309,15 @@ const getOrderedUsageMetrics = (
 ): {
   detail: string | null;
   label: string;
+  meterPercent?: number;
+  sectionBreakBefore?: boolean;
   value: string;
 }[] => {
   const metrics: {
     detail: string | null;
     label: string;
+    meterPercent?: number;
+    sectionBreakBefore?: boolean;
     value: string;
   }[] = [];
   const { usage } = providerView.status;
@@ -336,6 +348,38 @@ const getOrderedUsageMetrics = (
 
   metrics.push(...usage.additional);
 
+  if (providerView.status.providerDetails?.kind === "codex") {
+    const dashboard = providerView.status.providerDetails.dashboard;
+    const codeReviewWindow = dashboard?.codeReviewWindow ?? null;
+
+    if (codeReviewWindow !== null && codeReviewWindow.remainingPercent !== null) {
+      const usedPercent = invertRemainingPercent(codeReviewWindow.remainingPercent);
+
+      metrics.push({
+        detail: codeReviewWindow.resetAt,
+        label: codeReviewWindow.label,
+        meterPercent: usedPercent,
+        sectionBreakBefore: true,
+        value: `${String(usedPercent)}%`,
+      });
+    }
+
+    for (const rateLimit of dashboard?.additionalRateLimits ?? []) {
+      if (rateLimit.remainingPercent === null) {
+        continue;
+      }
+
+      const usedPercent = invertRemainingPercent(rateLimit.remainingPercent);
+
+      metrics.push({
+        detail: rateLimit.resetAt,
+        label: rateLimit.label,
+        meterPercent: usedPercent,
+        value: `${String(usedPercent)}%`,
+      });
+    }
+  }
+
   return metrics;
 };
 
@@ -348,14 +392,6 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
 
   if (providerDetails.kind === "codex") {
     const lines: string[] = [];
-
-    const codeReviewWindow = providerDetails.dashboard?.codeReviewWindow ?? null;
-
-    if (codeReviewWindow !== null && codeReviewWindow.remainingPercent !== null) {
-      const remaining = codeReviewWindow.remainingPercent;
-
-      lines.push("", `Code review ${String(remaining)}% remaining`);
-    }
 
     if (providerDetails.dashboard !== null) {
       if (providerDetails.dashboard.creditHistory.length > 0) {
@@ -392,7 +428,7 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
         lines.push(
           providerDetails.tokenCost.today.costUsd === null
             ? "Estimated token cost today: unavailable"
-            : `Estimated token cost today: USD ${providerDetails.tokenCost.today.costUsd.toFixed(2)}`,
+            : `Estimated token cost today: USD ${formatDecimalAmount(providerDetails.tokenCost.today.costUsd)}`,
         );
       }
 
@@ -400,7 +436,7 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
         lines.push(
           providerDetails.tokenCost.last30Days.costUsd === null
             ? "Estimated token cost 30d: unavailable"
-            : `Estimated token cost 30d: USD ${providerDetails.tokenCost.last30Days.costUsd.toFixed(2)}`,
+            : `Estimated token cost 30d: USD ${formatDecimalAmount(providerDetails.tokenCost.last30Days.costUsd)}`,
         );
       }
     }
@@ -418,7 +454,7 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
         lines.push(
           providerDetails.tokenCost.today.costUsd === null
             ? "Estimated token cost today: unavailable"
-            : `Estimated token cost today: USD ${providerDetails.tokenCost.today.costUsd.toFixed(2)}`,
+            : `Estimated token cost today: USD ${formatDecimalAmount(providerDetails.tokenCost.today.costUsd)}`,
         );
       }
 
@@ -426,7 +462,7 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
         lines.push(
           providerDetails.tokenCost.last30Days.costUsd === null
             ? "Estimated token cost 30d: unavailable"
-            : `Estimated token cost 30d: USD ${providerDetails.tokenCost.last30Days.costUsd.toFixed(2)}`,
+            : `Estimated token cost 30d: USD ${formatDecimalAmount(providerDetails.tokenCost.last30Days.costUsd)}`,
         );
       }
     }
@@ -457,13 +493,24 @@ const createUsageLines = (providerView: ProviderView): string[] => {
   const lines = displayMetrics.flatMap((metric, metricIndex) => {
     const detail = describeMetric(metric.label, metric.detail);
     const ratioMatch = /^(\d+)(?:\.\d+)?%$/.exec(metric.value.trim());
-    const ratio = ratioMatch === null ? null : Math.max(0, Math.min(100, Number(ratioMatch[1])));
+    const ratio =
+      metric.meterPercent !== undefined
+        ? Math.max(0, Math.min(100, metric.meterPercent))
+        : ratioMatch === null
+          ? null
+          : Math.max(0, Math.min(100, Number(ratioMatch[1])));
     const filledCount = ratio === null ? 0 : Math.round((ratio / 100) * 16);
     const meter = ratio === null ? "" : `${"█".repeat(filledCount)}${"░".repeat(16 - filledCount)}`;
     const includeSeparator = metricIndex !== displayMetrics.length - 1 && meter !== "";
+    const prefixLines = metric.sectionBreakBefore === true ? [""] : [];
+    const metricLine =
+      metric.label.length >= 12
+        ? `${metric.label} ${metric.value}`
+        : `${metric.label.padEnd(12, " ")}${metric.value}`;
 
     return [
-      `${metric.label.padEnd(12, " ")}${metric.value}`,
+      ...prefixLines,
+      metricLine,
       ...(meter === "" ? [] : [meter]),
       ...(detail === null ? [] : [detail]),
       ...(includeSeparator ? [""] : []),
