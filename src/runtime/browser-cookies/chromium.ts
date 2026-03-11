@@ -70,7 +70,7 @@ const decryptChromiumCookieValue = (encryptedValue: Uint8Array, key: Buffer): Bu
 };
 
 const readEncryptedValue = (
-  encryptedValue: string | bigint | number | boolean | Uint8Array,
+  encryptedValue: string | bigint | number | boolean | Uint8Array | undefined,
 ): Uint8Array => {
   if (encryptedValue instanceof Uint8Array) {
     return encryptedValue;
