@@ -118,7 +118,7 @@ const findFirstString = (value: unknown, targetKey: string): string | null => {
   const queue: unknown[] = [value];
   let seen = 0;
 
-  while (queue.length > 0 && seen < 2_000) {
+  while (queue.length > 0 && seen < 2000) {
     const current = queue.shift();
     seen += 1;
 
@@ -161,7 +161,7 @@ const summarizeJsonShape = (value: unknown): string => {
   }
 
   if (typeof value === "object" && value !== null) {
-    const keys = Object.keys(value).sort();
+    const keys = Object.keys(value).toSorted();
     const preview = keys.slice(0, 10).join(", ");
     return `object(keys=${preview}${keys.length > 10 ? ", ..." : ""})`;
   }
@@ -582,7 +582,7 @@ const dedupeCookiesByName = (cookies: DecryptedCookie[]): DecryptedCookie[] => {
     }
   }
 
-  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+  return [...byName.values()].toSorted((left, right) => left.name.localeCompare(right.name));
 };
 
 const buildSessionCookieHeader = (cookies: DecryptedCookie[]): string => {
@@ -824,30 +824,38 @@ const main = async (): Promise<void> => {
   const command = (args.positionals[0] ?? "help") as CommandName;
 
   switch (command) {
-    case "help":
+    case "help": {
       printUsage();
       return;
-    case "inspect-firefox-claude-cookies":
+    }
+    case "inspect-firefox-claude-cookies": {
       await inspectFirefoxClaudeCookies(args);
       return;
-    case "inspect-chromium-claude-cookies":
+    }
+    case "inspect-chromium-claude-cookies": {
       await inspectChromiumClaudeCookies(args);
       return;
-    case "probe-firefox-claude-session":
+    }
+    case "probe-firefox-claude-session": {
       await probeFirefoxClaudeSession(args);
       return;
-    case "probe-chromium-claude-session":
+    }
+    case "probe-chromium-claude-session": {
       await probeChromiumClaudeSession(args);
       return;
-    case "probe-firefox-claude-api":
+    }
+    case "probe-firefox-claude-api": {
       await probeFirefoxClaudeApi(args);
       return;
-    case "probe-chromium-claude-api":
+    }
+    case "probe-chromium-claude-api": {
       await probeChromiumClaudeApi(args);
       return;
-    default:
+    }
+    default: {
       printUsage();
       throw new Error(`Unknown command: ${command}`);
+    }
   }
 };
 

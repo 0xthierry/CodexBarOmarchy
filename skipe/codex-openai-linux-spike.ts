@@ -171,7 +171,7 @@ const findFirstEmail = (value: unknown): string | null => {
   const queue: unknown[] = [value];
   let seen = 0;
 
-  while (queue.length > 0 && seen < 2_000) {
+  while (queue.length > 0 && seen < 2000) {
     const current = queue.shift();
     seen += 1;
 
@@ -590,7 +590,7 @@ const dedupeCookiesByName = (cookies: DecryptedCookie[]): DecryptedCookie[] => {
     }
   }
 
-  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+  return [...byName.values()].toSorted((left, right) => left.name.localeCompare(right.name));
 };
 
 const buildCookieHeader = (cookies: DecryptedCookie[]): string =>
@@ -657,8 +657,6 @@ const readFirefoxOpenAICookies = async (
 
   return {
     cookieDbPath,
-    profileName,
-    rootPath,
     decryptedCookies: rows
       .filter((row) => row.value.trim() !== "")
       .map((row) => ({
@@ -668,6 +666,8 @@ const readFirefoxOpenAICookies = async (
         topFrameSiteKey: "",
         value: row.value,
       })),
+    profileName,
+    rootPath,
   };
 };
 
@@ -1113,7 +1113,7 @@ const probeChromiumOpenAIDashboard = async (args: ParsedArgs): Promise<void> => 
   }
 
   if (saveBodyPath !== null) {
-    await mkdir(join(saveBodyPath, ".."), { recursive: true }).catch(() => undefined);
+    await mkdir(join(saveBodyPath, ".."), { recursive: true }).catch(() => {});
     await writeFile(saveBodyPath, bodyText, "utf8");
     console.log(`- saved body: ${saveBodyPath}`);
     return;
@@ -1127,7 +1127,7 @@ const probeChromiumOpenAIDashboard = async (args: ParsedArgs): Promise<void> => 
 const parseSessionAccessToken = (bodyText: string): string | null => {
   try {
     const parsed = JSON.parse(bodyText) as Record<string, unknown>;
-    const accessToken = parsed["accessToken"];
+    const {accessToken} = parsed;
 
     return typeof accessToken === "string" && accessToken.trim() !== "" ? accessToken : null;
   } catch {
@@ -1138,7 +1138,7 @@ const parseSessionAccessToken = (bodyText: string): string | null => {
 const parseSessionAccountId = (bodyText: string): string | null => {
   try {
     const parsed = JSON.parse(bodyText) as Record<string, unknown>;
-    const account = parsed["account"];
+    const {account} = parsed;
 
     if (typeof account === "object" && account !== null) {
       const accountId = (account as Record<string, unknown>)["id"];
@@ -1397,7 +1397,7 @@ const probeOpenAIDashboard = async (args: ParsedArgs): Promise<void> => {
   }
 
   if (saveBodyPath !== null) {
-    await mkdir(join(saveBodyPath, ".."), { recursive: true }).catch(() => undefined);
+    await mkdir(join(saveBodyPath, ".."), { recursive: true }).catch(() => {});
     await writeFile(saveBodyPath, bodyText, "utf8");
     console.log(`- saved body: ${saveBodyPath}`);
     return;
@@ -1413,42 +1413,54 @@ const main = async (): Promise<void> => {
   const command = (args.positionals[0] ?? "help") as CommandName;
 
   switch (command) {
-    case "help":
+    case "help": {
       printUsage();
       return;
-    case "inspect-firefox-openai-cookies":
+    }
+    case "inspect-firefox-openai-cookies": {
       await inspectFirefoxOpenAICookies(args);
       return;
-    case "inspect-chromium-openai-cookies":
+    }
+    case "inspect-chromium-openai-cookies": {
       await inspectChromiumOpenAICookies(args);
       return;
-    case "list-cookie-stores":
+    }
+    case "list-cookie-stores": {
       await listCookieStores(args);
       return;
-    case "probe-firefox-openai-session":
+    }
+    case "probe-firefox-openai-session": {
       await probeFirefoxOpenAISession(args);
       return;
-    case "probe-firefox-wham-endpoints":
+    }
+    case "probe-firefox-wham-endpoints": {
       await probeFirefoxWhamEndpoints(args);
       return;
-    case "probe-chromium-openai-session":
+    }
+    case "probe-chromium-openai-session": {
       await probeChromiumOpenAISession(args);
       return;
-    case "probe-chromium-openai-dashboard":
+    }
+    case "probe-chromium-openai-dashboard": {
       await probeChromiumOpenAIDashboard(args);
       return;
-    case "probe-chromium-wham-endpoints":
+    }
+    case "probe-chromium-wham-endpoints": {
       await probeChromiumWhamEndpoints(args);
       return;
-    case "probe-openai-session":
+    }
+    case "probe-openai-session": {
       await probeOpenAISession(args);
       return;
-    case "probe-openai-dashboard":
+    }
+    case "probe-openai-dashboard": {
       await probeOpenAIDashboard(args);
       return;
-    default:
+    }
+    default: {
       printUsage();
       throw new Error(`Unknown command: ${command}`);
+    }
   }
 };
 
