@@ -166,37 +166,9 @@ const readFiniteNumber = (record: Record<string, unknown>, key: string): number 
 const formatPercent = (value: number): string => `${Math.round(value)}%`;
 const formatFractionPercent = (value: number): string => formatPercent(value * 100);
 
-const inferProviderMetricKind = (label: string): ProviderMetricKind => {
-  if (label === "Session") {
-    return "session";
-  }
-
-  if (label === "Weekly") {
-    return "weekly";
-  }
-
-  if (label === "Sonnet") {
-    return "sonnet";
-  }
-
-  if (label === "Pro") {
-    return "pro";
-  }
-
-  if (label === "Flash") {
-    return "flash";
-  }
-
-  if (label === "Credits") {
-    return "credits";
-  }
-
-  return "custom";
-};
-
 const createMetric = (input: ProviderMetricInput): ProviderMetricView => ({
   detail: input.detail ?? explicitNull,
-  kind: input.kind ?? inferProviderMetricKind(input.label),
+  kind: input.kind ?? "custom",
   label: input.label,
   value: input.value,
 });

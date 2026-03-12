@@ -203,41 +203,6 @@ const getProviderCostPercent = (value: ProviderCostSnapshot): number | null => {
 
 const invertRemainingPercent = (value: number): number => Math.max(0, 100 - value);
 
-const inferMetricKind = (metric: {
-  kind?: ProviderMetricKind;
-  label: string;
-}): ProviderMetricKind => {
-  if (metric.kind !== undefined) {
-    return metric.kind;
-  }
-
-  if (metric.label === "Session") {
-    return "session";
-  }
-
-  if (metric.label === "Weekly") {
-    return "weekly";
-  }
-
-  if (metric.label === "Sonnet") {
-    return "sonnet";
-  }
-
-  if (metric.label === "Pro") {
-    return "pro";
-  }
-
-  if (metric.label === "Flash") {
-    return "flash";
-  }
-
-  if (metric.label === "Credits") {
-    return "credits";
-  }
-
-  return "custom";
-};
-
 const describeMetric = (
   metric: { kind?: ProviderMetricKind; label: string },
   detail: string | null,
@@ -258,7 +223,7 @@ const describeMetric = (
     return detail;
   }
 
-  const metricKind = inferMetricKind(metric);
+  const metricKind = metric.kind ?? "custom";
 
   if (metricKind === "session") {
     return "Current session window";
@@ -362,7 +327,7 @@ const getOrderedUsageMetrics = (
     value: string;
   }[] = [];
   const { usage } = providerView.status;
-  const {providerDetails} = providerView.status;
+  const { providerDetails } = providerView.status;
 
   if (usage.windows.session !== null) {
     metrics.push(usage.windows.session);
@@ -393,7 +358,7 @@ const getOrderedUsageMetrics = (
   metrics.push(...usage.additional);
 
   if (isCodexProvider) {
-    const {dashboard} = providerDetails;
+    const { dashboard } = providerDetails;
 
     for (const rateLimit of dashboard?.additionalRateLimits ?? []) {
       if (rateLimit.remainingPercent === null) {

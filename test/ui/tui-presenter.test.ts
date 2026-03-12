@@ -88,6 +88,7 @@ test("renders the required shell sections for the selected provider", () => {
         pro: null,
         session: {
           detail: null,
+          kind: "session",
           label: "Session",
           value: "58%",
         },
@@ -174,6 +175,7 @@ test("omits usage health status when the provider is operational", () => {
         flash: null,
         pro: {
           detail: null,
+          kind: "pro",
           label: "Pro",
           value: "42%",
         },
@@ -280,6 +282,7 @@ test("renders Codex provider details from the structured providerDetails snapsho
       balances: {
         credits: {
           detail: null,
+          kind: "credits",
           label: "Credits",
           value: "10.50",
         },
@@ -300,6 +303,7 @@ test("renders Codex provider details from the structured providerDetails snapsho
         sonnet: null,
         weekly: {
           detail: "2026-03-10T18:00:00.000Z",
+          kind: "weekly",
           label: "Weekly",
           value: "75%",
         },
@@ -403,6 +407,7 @@ test("renders Claude provider details from the structured providerDetails snapsh
         sonnet: null,
         weekly: {
           detail: "2026-03-10T18:00:00.000Z",
+          kind: "weekly",
           label: "Weekly",
           value: "60%",
         },
@@ -537,12 +542,12 @@ test("formats estimated token costs with grouped thousands separators", () => {
       tokenCost: {
         daily: [],
         last30Days: {
-          costUsd: 1951.481028,
+          costUsd: 1951.481_028,
           tokens: 100,
           unpricedModels: [],
         },
         today: {
-          costUsd: 458.755806,
+          costUsd: 458.755_806,
           tokens: 10,
           unpricedModels: [],
         },
@@ -624,6 +629,7 @@ test("prefers refresh errors over service status in the usage banner", () => {
         sonnet: null,
         weekly: {
           detail: "2026-03-12T12:00:00.000Z",
+          kind: "weekly",
           label: "Weekly",
           value: "60%",
         },
@@ -757,6 +763,7 @@ test("renders unavailable token-cost text when pricing is unknown", () => {
         sonnet: null,
         weekly: {
           detail: "2026-03-10T18:00:00.000Z",
+          kind: "weekly",
           label: "Weekly",
           value: "75%",
         },
@@ -848,6 +855,7 @@ test("renders Gemini quota drill-down and incidents from providerDetails", () =>
         flash: null,
         pro: {
           detail: "2026-03-10T18:00:00.000Z",
+          kind: "pro",
           label: "Pro",
           value: "28%",
         },
