@@ -38,6 +38,8 @@ interface CreateTuiControllerOptions {
 }
 
 type TuiSettingsChoiceHandler = (choice: TuiSettingsChoice) => Promise<void>;
+type TuiSettingsActionHandler = () => Promise<void>;
+type TuiSettingsItemActivationHandler = (item: TuiSettingsItemDescriptor) => Promise<void>;
 
 const createInitialLocalState = (): TuiLocalState => ({
   focusedProviderId: null,
@@ -474,6 +476,37 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     );
   };
 
+  const actionHandlers: Record<string, TuiSettingsActionHandler> = {
+    "claude:add-token-account": async () => {
+      startClaudeTokenAccountEditor();
+    },
+    "claude:remove-token-account": removeActiveClaudeTokenAccount,
+  };
+
+  const itemActivationHandlers: Record<
+    TuiSettingsItemDescriptor["kind"],
+    TuiSettingsItemActivationHandler
+  > = {
+    action: async (item) => {
+      const actionHandler = actionHandlers[item.id];
+
+      if (actionHandler !== undefined) {
+        await actionHandler();
+      }
+    },
+    readonly: async () => {},
+    select: async () => {
+      focusModalChoices();
+    },
+    toggle: async (item) => {
+      const nextChoice = item.choices.find((choice) => choice.value !== item.currentValue);
+
+      if (nextChoice !== undefined) {
+        await updateSelectedChoice(item, nextChoice);
+      }
+    },
+  };
+
   const activateSelectedSettingsItem = async (): Promise<void> => {
     const selectedItem = getSelectedSettingsItem();
 
@@ -481,31 +514,7 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
       return;
     }
 
-    if (selectedItem.kind === "toggle") {
-      const nextChoice = selectedItem.choices.find(
-        (choice) => choice.value !== selectedItem.currentValue,
-      );
-
-      if (nextChoice !== undefined) {
-        await updateSelectedChoice(selectedItem, nextChoice);
-      }
-
-      return;
-    }
-
-    if (selectedItem.kind === "select") {
-      focusModalChoices();
-      return;
-    }
-
-    if (selectedItem.kind === "action" && selectedItem.id === "claude:add-token-account") {
-      startClaudeTokenAccountEditor();
-      return;
-    }
-
-    if (selectedItem.kind === "action" && selectedItem.id === "claude:remove-token-account") {
-      await removeActiveClaudeTokenAccount();
-    }
+    await itemActivationHandlers[selectedItem.kind](selectedItem);
   };
 
   const applySelectedChoice = async (): Promise<void> => {
