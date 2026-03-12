@@ -59,6 +59,8 @@ Run the tray entrypoint:
 bun run tray
 ```
 
+The repo-local `tray` script uses the development identity suffix `dev`, so it does not collide with a future installed production build that uses `org.omarchy.agent-stats`.
+
 Print the current provider state as JSON:
 
 ```bash
