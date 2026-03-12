@@ -37,6 +37,8 @@ interface CreateTuiControllerOptions {
   appStore: AppStore;
 }
 
+type TuiSettingsChoiceHandler = (choice: TuiSettingsChoice) => Promise<void>;
+
 const createInitialLocalState = (): TuiLocalState => ({
   focusedProviderId: null,
   footerMessage: null,
@@ -356,103 +358,81 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     }
   };
 
-  const updateSelectedChoice = async (
-    item: TuiSettingsItemDescriptor,
-    choice: TuiSettingsChoice,
-  ): Promise<void> => {
-    const providerId = getFocusedProvider().id;
-
-    if (item.id === "shared:enabled") {
-      await updateCurrentProviderEnabled(choice.value === "on");
-      return;
-    }
-
-    if (item.id === "codex:source") {
-      await runStoreMutation(
-        () =>
-          options.appStore.setCodexConfig((providerConfig) => ({
-            ...providerConfig,
-            source: normalizeCodexSource(choice.value),
-          })),
-        `Set Codex usage source to ${choice.label}.`,
-      );
-      return;
-    }
-
-    if (item.id === "codex:cookie-source") {
-      await runStoreMutation(
-        () =>
-          options.appStore.setCodexConfig((providerConfig) => ({
-            ...providerConfig,
-            cookieSource: normalizeCodexCookieSource(choice.value),
-          })),
-        `Set Codex cookie mode to ${choice.label}.`,
-      );
-      return;
-    }
-
-    if (item.id === "codex:historical-tracking") {
-      await runStoreMutation(
-        () =>
-          options.appStore.setCodexConfig((providerConfig) => ({
-            ...providerConfig,
-            historicalTrackingEnabled: choice.value === "on",
-          })),
-        `${choice.value === "on" ? "Enabled" : "Disabled"} Codex historical tracking.`,
-      );
-      return;
-    }
-
-    if (item.id === "codex:web-extras") {
-      await runStoreMutation(
-        () =>
-          options.appStore.setCodexConfig((providerConfig) => ({
-            ...providerConfig,
-            extrasEnabled: choice.value === "on",
-          })),
-        `${choice.value === "on" ? "Enabled" : "Disabled"} Codex web extras.`,
-      );
-      return;
-    }
-
-    if (item.id === "claude:source") {
-      await runStoreMutation(
-        () =>
-          options.appStore.setClaudeConfig((providerConfig) => ({
-            ...providerConfig,
-            source: normalizeClaudeSource(choice.value),
-          })),
-        `Set Claude usage source to ${choice.label}.`,
-      );
-      return;
-    }
-
-    if (item.id === "claude:cookie-source") {
-      await runStoreMutation(
-        () =>
-          options.appStore.setClaudeConfig((providerConfig) => ({
-            ...providerConfig,
-            cookieSource: normalizeClaudeCookieSource(choice.value),
-          })),
-        `Set Claude cookie mode to ${choice.label}.`,
-      );
-      return;
-    }
-
-    if (item.id === "claude:active-token-account") {
-      await runStoreMutation(
+  const choiceHandlers: Record<string, TuiSettingsChoiceHandler> = {
+    "claude:active-token-account": async (choice) =>
+      runStoreMutation(
         () =>
           options.appStore.setClaudeConfig((providerConfig) => ({
             ...providerConfig,
             activeTokenAccountIndex: Number(choice.value),
           })),
         `Selected Claude token account ${choice.label}.`,
-      );
-      return;
-    }
+      ),
+    "claude:cookie-source": async (choice) =>
+      runStoreMutation(
+        () =>
+          options.appStore.setClaudeConfig((providerConfig) => ({
+            ...providerConfig,
+            cookieSource: normalizeClaudeCookieSource(choice.value),
+          })),
+        `Set Claude cookie mode to ${choice.label}.`,
+      ),
+    "claude:source": async (choice) =>
+      runStoreMutation(
+        () =>
+          options.appStore.setClaudeConfig((providerConfig) => ({
+            ...providerConfig,
+            source: normalizeClaudeSource(choice.value),
+          })),
+        `Set Claude usage source to ${choice.label}.`,
+      ),
+    "codex:cookie-source": async (choice) =>
+      runStoreMutation(
+        () =>
+          options.appStore.setCodexConfig((providerConfig) => ({
+            ...providerConfig,
+            cookieSource: normalizeCodexCookieSource(choice.value),
+          })),
+        `Set Codex cookie mode to ${choice.label}.`,
+      ),
+    "codex:historical-tracking": async (choice) =>
+      runStoreMutation(
+        () =>
+          options.appStore.setCodexConfig((providerConfig) => ({
+            ...providerConfig,
+            historicalTrackingEnabled: choice.value === "on",
+          })),
+        `${choice.value === "on" ? "Enabled" : "Disabled"} Codex historical tracking.`,
+      ),
+    "codex:source": async (choice) =>
+      runStoreMutation(
+        () =>
+          options.appStore.setCodexConfig((providerConfig) => ({
+            ...providerConfig,
+            source: normalizeCodexSource(choice.value),
+          })),
+        `Set Codex usage source to ${choice.label}.`,
+      ),
+    "codex:web-extras": async (choice) =>
+      runStoreMutation(
+        () =>
+          options.appStore.setCodexConfig((providerConfig) => ({
+            ...providerConfig,
+            extrasEnabled: choice.value === "on",
+          })),
+        `${choice.value === "on" ? "Enabled" : "Disabled"} Codex web extras.`,
+      ),
+    "shared:enabled": async (choice) => updateCurrentProviderEnabled(choice.value === "on"),
+  };
 
-    if (providerId === "gemini" && item.id === "shared:enabled") {
-      await updateCurrentProviderEnabled(choice.value === "on");
+  const updateSelectedChoice = async (
+    item: TuiSettingsItemDescriptor,
+    choice: TuiSettingsChoice,
+  ): Promise<void> => {
+    const choiceHandler = choiceHandlers[item.id];
+
+    if (choiceHandler !== undefined) {
+      await choiceHandler(choice);
     }
   };
 
