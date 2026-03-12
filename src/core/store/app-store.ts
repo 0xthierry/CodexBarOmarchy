@@ -501,18 +501,31 @@ const createRefreshEnabledProviders =
       runtime.currentState.enabledProviderIds.map((providerId) => refreshProvider(providerId)),
     );
 
+const clearRefreshSchedulerHandle = (runtime: AppStoreRuntime): void => {
+  if (runtime.schedulerHandle === null) {
+    return;
+  }
+
+  globalThis.clearInterval(runtime.schedulerHandle);
+  runtime.schedulerHandle = explicitNull;
+};
+
+const setRefreshSchedulerHandle = (
+  runtime: AppStoreRuntime,
+  refreshEnabledProviders: () => Promise<RefreshActionResult[]>,
+  intervalMs: number,
+): void => {
+  clearRefreshSchedulerHandle(runtime);
+  runtime.schedulerHandle = globalThis.setInterval(() => {
+    void refreshEnabledProviders();
+  }, intervalMs);
+};
+
 const createStartRefreshScheduler =
   (refreshEnabledProviders: () => Promise<RefreshActionResult[]>, runtime: AppStoreRuntime) =>
   (intervalMs: number): AppStoreState => {
     const normalizedIntervalMs = normalizeRefreshSchedulerIntervalMs(intervalMs);
-
-    if (runtime.schedulerHandle !== null) {
-      globalThis.clearInterval(runtime.schedulerHandle);
-    }
-
-    runtime.schedulerHandle = globalThis.setInterval(() => {
-      void refreshEnabledProviders();
-    }, normalizedIntervalMs);
+    setRefreshSchedulerHandle(runtime, refreshEnabledProviders, normalizedIntervalMs);
 
     return updateSchedulerState(runtime, {
       active: true,
@@ -521,10 +534,7 @@ const createStartRefreshScheduler =
   };
 
 const createStopRefreshScheduler = (runtime: AppStoreRuntime) => (): AppStoreState => {
-  if (runtime.schedulerHandle !== null) {
-    globalThis.clearInterval(runtime.schedulerHandle);
-    runtime.schedulerHandle = explicitNull;
-  }
+  clearRefreshSchedulerHandle(runtime);
 
   return updateSchedulerState(runtime, defaultSchedulerState);
 };
