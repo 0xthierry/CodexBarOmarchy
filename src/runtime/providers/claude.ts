@@ -27,6 +27,7 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
+  runResolvedRefresh,
   withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
@@ -1121,20 +1122,14 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       "Opened the Claude token file.",
     );
   },
-  refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"claude">> => {
-    const resolvedSource = await resolveClaudeSource(host, providerConfig.source, providerConfig);
-
-    if (resolvedSource === null) {
-      return createRefreshError(
-        "claude",
-        "Claude credentials, CLI, or token file are unavailable.",
-      );
-    }
-    return finalizeClaudeRefresh(
-      host,
-      await refreshClaudeFromResolvedSource(host, resolvedSource, providerConfig),
-    );
-  },
+  refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"claude">> => runResolvedRefresh({
+      finalizeResult: (result) => finalizeClaudeRefresh(host, result),
+      providerId: "claude",
+      refreshFromResolvedSource: (resolvedSource) =>
+        refreshClaudeFromResolvedSource(host, resolvedSource, providerConfig),
+      resolveSource: () => resolveClaudeSource(host, providerConfig.source, providerConfig),
+      unavailableMessage: "Claude credentials, CLI, or token file are unavailable.",
+    }),
   reloadTokenFile: async (): Promise<
     ReturnType<typeof createErrorProviderActionResult<"claude", "reloadTokenFile">>
   > => {

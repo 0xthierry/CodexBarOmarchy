@@ -464,6 +464,32 @@ const readCommandVersion = async (
   return typeof versionToken === "string" && versionToken !== "" ? versionToken : explicitNull;
 };
 
+const runResolvedRefresh = async <ProviderValue extends ProviderId, ResolvedSource>(input: {
+  finalizeResult?: (
+    result: ProviderRefreshActionResult<ProviderValue>,
+  ) => Promise<ProviderRefreshActionResult<ProviderValue>>;
+  providerId: ProviderValue;
+  refreshFromResolvedSource: (
+    resolvedSource: ResolvedSource,
+  ) => Promise<ProviderRefreshActionResult<ProviderValue>>;
+  resolveSource: () => Promise<ResolvedSource | null>;
+  unavailableMessage: string;
+}): Promise<ProviderRefreshActionResult<ProviderValue>> => {
+  const resolvedSource = await input.resolveSource();
+
+  if (resolvedSource === null) {
+    return createRefreshError(input.providerId, input.unavailableMessage);
+  }
+
+  const result = await input.refreshFromResolvedSource(resolvedSource);
+
+  if (input.finalizeResult !== undefined) {
+    return input.finalizeResult(result);
+  }
+
+  return result;
+};
+
 export {
   createRefreshError,
   createRefreshSuccess,
@@ -485,6 +511,7 @@ export {
   readNestedRecord,
   readString,
   readStringArray,
+  runResolvedRefresh,
   withProviderDetails,
   writeJsonFile,
   type JsonFileReadResult,

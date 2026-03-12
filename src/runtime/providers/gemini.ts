@@ -20,6 +20,7 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
+  runResolvedRefresh,
   withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
@@ -678,17 +679,14 @@ const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter =
 
     return createSuccessfulProviderActionResult("gemini", "login", "Opened Gemini login.");
   },
-  refresh: async (): Promise<ProviderRefreshActionResult<"gemini">> => {
-    const resolvedSource = await resolveGeminiSource(host);
-
-    if (resolvedSource === null) {
-      return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");
-    }
-    return attachGeminiWorkspaceStatus(
-      host,
-      await refreshGeminiFromResolvedSource(host, resolvedSource),
-    );
-  },
+  refresh: async (): Promise<ProviderRefreshActionResult<"gemini">> => runResolvedRefresh({
+      finalizeResult: (result) => attachGeminiWorkspaceStatus(host, result),
+      providerId: "gemini",
+      refreshFromResolvedSource: (resolvedSource) =>
+        refreshGeminiFromResolvedSource(host, resolvedSource),
+      resolveSource: () => resolveGeminiSource(host),
+      unavailableMessage: "Gemini OAuth credentials are unavailable.",
+    }),
 });
 
 export {

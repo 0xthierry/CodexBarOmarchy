@@ -21,6 +21,7 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
+  runResolvedRefresh,
   withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
@@ -976,18 +977,14 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
 
     return createSuccessfulProviderActionResult("codex", "login", "Opened Codex login.");
   },
-  refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"codex">> => {
-    const resolvedSource = await resolveCodexSource(host, providerConfig.source);
-
-    if (resolvedSource === null) {
-      return createRefreshError("codex", "Codex credentials or CLI are unavailable.");
-    }
-    return finalizeCodexRefresh(
-      host,
-      providerConfig,
-      await refreshCodexFromResolvedSource(host, resolvedSource, providerConfig),
-    );
-  },
+  refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"codex">> => runResolvedRefresh({
+      finalizeResult: (result) => finalizeCodexRefresh(host, providerConfig, result),
+      providerId: "codex",
+      refreshFromResolvedSource: (resolvedSource) =>
+        refreshCodexFromResolvedSource(host, resolvedSource, providerConfig),
+      resolveSource: () => resolveCodexSource(host, providerConfig.source),
+      unavailableMessage: "Codex credentials or CLI are unavailable.",
+    }),
 });
 
 export { createCodexProviderAdapter, resolveCodexAuthPath, resolveCodexSource };
