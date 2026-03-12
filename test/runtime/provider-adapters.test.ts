@@ -67,6 +67,7 @@ interface HostFixture {
 
 const cleanupPaths: string[] = [];
 const updatedAt = "2026-03-08T12:00:00.000Z";
+const fakeBinaryPath = (binaryName: string): string => `test-bin/${binaryName}`;
 
 const createConfig = (): ReturnType<typeof createDefaultConfig> => createDefaultConfig();
 
@@ -678,7 +679,7 @@ test("codex falls back to the app-server CLI path when oauth is unavailable", as
       ],
     },
     which: {
-      codex: "/usr/bin/codex",
+      codex: fakeBinaryPath("codex"),
     },
   });
   const providerAdapters = createRuntimeProviderAdapters(fixture.host);
@@ -741,7 +742,7 @@ test("codex auto falls back to the CLI path when oauth credentials are invalid",
       ],
     },
     which: {
-      codex: "/usr/bin/codex",
+      codex: fakeBinaryPath("codex"),
     },
   });
   const authPath = join(fixture.homeDirectory, ".codex", "auth.json");
@@ -984,7 +985,7 @@ test("claude oauth falls back to auth status for account email and cli version",
       ],
     },
     which: {
-      claude: "/usr/bin/claude",
+      claude: fakeBinaryPath("claude"),
     },
   });
   const credentialsPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
@@ -1271,7 +1272,7 @@ test("claude auto falls back to cli when oauth refresh fails", async () => {
       ],
     },
     which: {
-      claude: "/usr/bin/claude",
+      claude: fakeBinaryPath("claude"),
     },
   });
   const credentialsPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
@@ -1308,7 +1309,7 @@ test("claude auto prefers the cli fallback before the web session fallback", asy
       },
     },
     which: {
-      claude: "/usr/bin/claude",
+      claude: fakeBinaryPath("claude"),
     },
   });
   const providerAdapters = createRuntimeProviderAdapters(fixture.host);
@@ -1350,7 +1351,7 @@ test("claude auto falls back to the web snapshot when cli and local fallbacks bo
       },
     },
     which: {
-      claude: "/usr/bin/claude",
+      claude: fakeBinaryPath("claude"),
     },
   });
   const sessionPath = join(fixture.homeDirectory, ".claude", "session.json");
@@ -1633,7 +1634,7 @@ test("claude cli source fails when slash status output does not include usage me
       },
     },
     which: {
-      claude: "/usr/bin/claude",
+      claude: fakeBinaryPath("claude"),
     },
   });
   const providerAdapters = createRuntimeProviderAdapters(fixture.host);

@@ -23,13 +23,14 @@ interface TestBinaryLocator {
 const explicitNull = null;
 
 const failedSaveMessage = "Simulated detection save failure.";
+const fakeBinaryPath = (binaryName: ProviderId): string => `test-bin/${binaryName}`;
 
 const createTestBinaryLocator = (
   installedBinaries: Record<ProviderId, boolean>,
 ): TestBinaryLocator => ({
   findBinary: (binaryName: ProviderId): string | null => {
     if (installedBinaries[binaryName]) {
-      return `/usr/bin/${binaryName}`;
+      return fakeBinaryPath(binaryName);
     }
 
     return explicitNull;
@@ -46,7 +47,7 @@ const createInMemoryConfigStore = (options?: { failFirstSave?: boolean }): InMem
       savedConfig = explicitNull;
       await Promise.resolve();
     },
-    filePath: "/tmp/in-memory-provider-detection-config.json",
+    filePath: "test-config/in-memory-provider-detection-config.json",
     load: async (): Promise<OmarchyAgentBarConfig | null> => {
       await Promise.resolve();
 

@@ -57,7 +57,7 @@ const createHostFixture = (
         throw new Error("Not implemented in service status tests.");
       },
     },
-    homeDirectory: "/tmp/service-status-test",
+    homeDirectory: "test-home/service-status",
     http: {
       request: async (
         url: string,

@@ -9,6 +9,8 @@ interface ActivatableTrayItem {
   Activate: (x: number, y: number) => void;
 }
 
+const fakeBinaryPath = (binaryName: string): string => `test-bin/${binaryName}`;
+
 const isActivatableTrayItem = (value: unknown): value is ActivatableTrayItem => {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -53,7 +55,7 @@ test("startTrayService requests the bus name, exports the item, and registers it
     spawnDetached: async (): Promise<void> => {
       await Promise.resolve();
     },
-    whichCommand: async (): Promise<string | null> => "/usr/bin/fake",
+    whichCommand: async (): Promise<string | null> => fakeBinaryPath("fake"),
   };
 
   const service = await startTrayService({
@@ -98,7 +100,7 @@ test("the exported tray item activates the injected launcher host", async () => 
     spawnDetached: async (): Promise<void> => {
       resolveLaunch?.();
     },
-    whichCommand: async (): Promise<string | null> => "/usr/bin/fake",
+    whichCommand: async (): Promise<string | null> => fakeBinaryPath("fake"),
   };
 
   const service = await startTrayService({
@@ -147,7 +149,7 @@ test("startTrayService forwards bus errors to the configured logger", async () =
       spawnDetached: async (): Promise<void> => {
         await Promise.resolve();
       },
-      whichCommand: async (): Promise<string | null> => "/usr/bin/fake",
+      whichCommand: async (): Promise<string | null> => fakeBinaryPath("fake"),
     },
     logError: (error: unknown): void => {
       loggedErrors.push(error);
@@ -193,7 +195,7 @@ test("startTrayService logs activation failures from the launcher host", async (
       spawnDetached: async (): Promise<void> => {
         await Promise.resolve();
       },
-      whichCommand: async (): Promise<string | null> => "/usr/bin/fake",
+      whichCommand: async (): Promise<string | null> => fakeBinaryPath("fake"),
     },
     logError: (error: unknown): void => {
       loggedErrors.push(error);

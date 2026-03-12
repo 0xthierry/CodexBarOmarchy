@@ -76,12 +76,14 @@ const resolveVoid = async (): Promise<void> => {
   await Promise.resolve();
 };
 
+const fakeBinaryPath = (binaryName: string): string => `test-bin/${binaryName}`;
+
 const createFakeConfigStore = (initialConfig: OmarchyAgentBarConfig): FakeConfigStore => {
   let currentConfig = initialConfig;
 
   return {
     deleteIfPresent: resolveVoid,
-    filePath: "/tmp/fake-omarchy-agent-bar-config.json",
+    filePath: "test-config/fake-omarchy-agent-bar-config.json",
     load: async (): Promise<OmarchyAgentBarConfig> => {
       await Promise.resolve();
 
@@ -108,7 +110,7 @@ const createFakeConfigStore = (initialConfig: OmarchyAgentBarConfig): FakeConfig
 };
 
 const createTestBinaryLocator = (): TestBinaryLocator => ({
-  findBinary: (binaryName: "claude" | "codex" | "gemini"): string => `/usr/bin/${binaryName}`,
+  findBinary: (binaryName: "claude" | "codex" | "gemini"): string => fakeBinaryPath(binaryName),
   isInstalled: (): boolean => true,
 });
 

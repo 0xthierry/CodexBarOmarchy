@@ -13,8 +13,10 @@ interface CommandRecord {
   command: string;
 }
 
+const fakeBinaryPath = (binaryName: string): string => `test-bin/${binaryName}`;
+const repoRoot = "test-fixtures/repo-root";
 const repoLocalLaunchTarget = {
-  args: ["run", "--cwd", "/repo", "tui"],
+  args: ["run", "--cwd", repoRoot, "tui"],
   command: "bun",
 };
 
@@ -27,10 +29,10 @@ const createCommandResult = (input: Partial<RuntimeCommandResult> = {}): Runtime
 const createLauncherHostFixture = (
   commandResults: Record<string, RuntimeCommandResult>,
   whichResults: Record<string, string | null> = {
-    bun: "/usr/bin/bun",
-    hyprctl: "/usr/bin/hyprctl",
-    "uwsm-app": "/usr/bin/uwsm-app",
-    "xdg-terminal-exec": "/usr/bin/xdg-terminal-exec",
+    bun: fakeBinaryPath("bun"),
+    hyprctl: fakeBinaryPath("hyprctl"),
+    "uwsm-app": fakeBinaryPath("uwsm-app"),
+    "xdg-terminal-exec": fakeBinaryPath("xdg-terminal-exec"),
   },
 ): {
   host: TrayLauncherHost;
@@ -129,7 +131,7 @@ test("createOmarchyTerminalLaunchCommand wraps the repo-local tui target with Om
       "bun",
       "run",
       "--cwd",
-      "/repo",
+      repoRoot,
       "tui",
     ],
     command: "uwsm-app",
@@ -179,7 +181,7 @@ test("planTrayActivation returns a launch action with the configured app id when
         "bun",
         "run",
         "--cwd",
-        "/repo",
+        repoRoot,
         "tui",
       ],
       command: "uwsm-app",
@@ -249,7 +251,7 @@ test("activateTrayTui launches the TUI when no matching client exists", async ()
         "bun",
         "run",
         "--cwd",
-        "/repo",
+        repoRoot,
         "tui",
       ],
       command: "uwsm-app",
@@ -261,10 +263,10 @@ test("activateTrayTui fails clearly when hyprctl is unavailable", async () => {
   const { host } = createLauncherHostFixture(
     {},
     {
-      bun: "/usr/bin/bun",
+      bun: fakeBinaryPath("bun"),
       hyprctl: null,
-      "uwsm-app": "/usr/bin/uwsm-app",
-      "xdg-terminal-exec": "/usr/bin/xdg-terminal-exec",
+      "uwsm-app": fakeBinaryPath("uwsm-app"),
+      "xdg-terminal-exec": fakeBinaryPath("xdg-terminal-exec"),
     },
   );
 
@@ -304,7 +306,7 @@ test("activateTrayTui surfaces detached launch failures", async () => {
     spawnDetached: async (): Promise<void> => {
       throw launchError;
     },
-    whichCommand: async (): Promise<string | null> => "/usr/bin/fake",
+    whichCommand: async (): Promise<string | null> => fakeBinaryPath("fake"),
   };
 
   try {

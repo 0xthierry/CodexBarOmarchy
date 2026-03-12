@@ -15,6 +15,8 @@ import { deriveChromiumLinuxKey } from "../../src/runtime/browser-cookies/chromi
 import { resolveClaudeWebSession } from "../../src/runtime/providers/claude-web-auth.ts";
 import { resolveCodexWebSession } from "../../src/runtime/providers/codex-web-auth.ts";
 
+const fakeBinaryPath = (binaryName: string): string => `test-bin/${binaryName}`;
+
 const writeFirefoxCookies = async (
   cookieDbPath: string,
   entries: {
@@ -91,11 +93,7 @@ const encryptChromiumCookieValue = (
   const plaintext = Buffer.concat([domainDigest, Buffer.from(cookieValue, "utf8")]);
   const cipher = createCipheriv("aes-128-cbc", key, Buffer.from(" ".repeat(16), "utf8"));
 
-  return Buffer.concat([
-    Buffer.from("v11", "utf8"),
-    cipher.update(plaintext),
-    cipher.final(),
-  ]);
+  return Buffer.concat([Buffer.from("v11", "utf8"), cipher.update(plaintext), cipher.final()]);
 };
 
 const writeChromiumCookies = async (
@@ -309,8 +307,7 @@ test("resolveCodexWebSession auto reads a Chromium-family cookie store and valid
 
         expect(options?.headers).toEqual({
           Accept: "application/json",
-          Cookie:
-            "__Secure-next-auth.session-token=chrome-session-token; oai-did=chrome-device-id",
+          Cookie: "__Secure-next-auth.session-token=chrome-session-token; oai-did=chrome-device-id",
         });
 
         return {
@@ -329,13 +326,13 @@ test("resolveCodexWebSession auto reads a Chromium-family cookie store and valid
       },
       {
         run: async (command, args) => {
-          expect(command).toBe("/usr/bin/secret-tool");
+          expect(command).toBe(fakeBinaryPath("secret-tool"));
           expect(args[0]).toBe("lookup");
           expect(args[1]).toBe("application");
           const application = args[2];
 
           if (typeof application !== "string") {
-            throw new Error("Expected a browser application argument.");
+            throw new TypeError("Expected a browser application argument.");
           }
 
           expect(["chrome", "chromium", "brave"]).toContain(application);
@@ -346,7 +343,8 @@ test("resolveCodexWebSession auto reads a Chromium-family cookie store and valid
             stdout: `${chromiumSecret}\n`,
           };
         },
-        which: async (binaryName) => (binaryName === "secret-tool" ? "/usr/bin/secret-tool" : null),
+        which: async (binaryName) =>
+          binaryName === "secret-tool" ? fakeBinaryPath("secret-tool") : null,
       },
     );
 
@@ -517,13 +515,13 @@ test("resolveClaudeWebSession auto reads a Chromium-family sessionKey cookie and
       },
       {
         run: async (command, args) => {
-          expect(command).toBe("/usr/bin/secret-tool");
+          expect(command).toBe(fakeBinaryPath("secret-tool"));
           expect(args[0]).toBe("lookup");
           expect(args[1]).toBe("application");
           const application = args[2];
 
           if (typeof application !== "string") {
-            throw new Error("Expected a browser application argument.");
+            throw new TypeError("Expected a browser application argument.");
           }
 
           expect(["chrome", "chromium", "brave"]).toContain(application);
@@ -534,7 +532,8 @@ test("resolveClaudeWebSession auto reads a Chromium-family sessionKey cookie and
             stdout: `${chromiumSecret}\n`,
           };
         },
-        which: async (binaryName) => (binaryName === "secret-tool" ? "/usr/bin/secret-tool" : null),
+        which: async (binaryName) =>
+          binaryName === "secret-tool" ? fakeBinaryPath("secret-tool") : null,
       },
     );
 

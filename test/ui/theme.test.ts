@@ -21,27 +21,27 @@ foreground = "#eeeeee"
 });
 
 test("prefers OMARCHY_THEME_PATH when provided", () => {
-  const candidates = resolveThemeCandidates("/tmp/custom-theme.toml", "/home/tester");
+  const candidates = resolveThemeCandidates("test-config/custom-theme.toml", "test-home");
 
   expect(candidates).toEqual([
     {
       label: "OMARCHY_THEME_PATH",
-      path: "/tmp/custom-theme.toml",
+      path: "test-config/custom-theme.toml",
     },
   ]);
 });
 
 test("returns the standard Omarchy theme candidate paths by default", () => {
-  const candidates = resolveThemeCandidates(undefined, "/home/tester");
+  const candidates = resolveThemeCandidates(undefined, "test-home");
 
   expect(candidates).toEqual([
     {
       label: "~/.config/omarchy/current/theme/colors.toml",
-      path: "/home/tester/.config/omarchy/current/theme/colors.toml",
+      path: "test-home/.config/omarchy/current/theme/colors.toml",
     },
     {
       label: "~/.local/share/omarchy/current/theme/colors.toml",
-      path: "/home/tester/.local/share/omarchy/current/theme/colors.toml",
+      path: "test-home/.local/share/omarchy/current/theme/colors.toml",
     },
   ]);
 });

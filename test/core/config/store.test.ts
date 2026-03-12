@@ -128,7 +128,7 @@ test("config store writes the config file with owner-only permissions", async ()
 test("config store creates the temporary file with owner-only permissions from the first write", async () => {
   const fileSystem = createRecordingFileSystem();
   const configStore = createConfigStore({
-    filePath: "/tmp/recorded-config.json",
+    filePath: "test-config/recorded-config.json",
     fileSystem,
   });
 

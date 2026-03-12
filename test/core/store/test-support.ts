@@ -26,6 +26,7 @@ interface TestBinaryLocator {
 
 const defaultDelayMs = 0;
 const saveCountIncrement = 1;
+const fakeBinaryPath = (binaryName: ProviderId): string => `test-bin/${binaryName}`;
 
 // eslint-disable-next-line unicorn/no-null
 const explicitNull = null;
@@ -49,7 +50,7 @@ const createTestBinaryLocator = (
 ): TestBinaryLocator => ({
   findBinary: (binaryName: ProviderId): string | null => {
     if (installedBinaries[binaryName]) {
-      return `/usr/bin/${binaryName}`;
+      return fakeBinaryPath(binaryName);
     }
 
     return explicitNull;
@@ -67,7 +68,7 @@ const createFakeConfigStore = (
 
   return {
     deleteIfPresent: resolveVoid,
-    filePath: "/tmp/fake-omarchy-agent-bar-config.json",
+    filePath: "test-config/fake-omarchy-agent-bar-config.json",
     load: async (): Promise<OmarchyAgentBarConfig> => {
       await Promise.resolve();
 
