@@ -16,6 +16,7 @@ test("createStatusNotifierItem exposes the tray metadata and activates the callb
 
   expect(item.Id).toBe("agent-stats");
   expect(item.IconName).toBe(trayIconPath);
+  expect(item.ItemIsMenu).toBe(false);
   expect(item.Status).toBe("Active");
 
   item.Activate(0, 0);

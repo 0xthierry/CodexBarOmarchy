@@ -26,6 +26,7 @@ class StatusNotifierItemInterface extends Interface {
   IconName = trayIconPath;
   IconThemePath = "";
   Id = "agent-stats";
+  ItemIsMenu = false;
   Menu = trayNoMenuObjectPath;
   Status = "Active";
   Title = "agent-stats";
@@ -99,6 +100,10 @@ StatusNotifierItemInterface.configureMembers({
       access: ACCESS_READ,
       signature: "s",
     },
+    ItemIsMenu: {
+      access: ACCESS_READ,
+      signature: "b",
+    },
     Menu: {
       access: ACCESS_READ,
       signature: "o",
@@ -113,7 +118,7 @@ StatusNotifierItemInterface.configureMembers({
     },
     WindowId: {
       access: ACCESS_READ,
-      signature: "u",
+      signature: "i",
     },
   },
 });
