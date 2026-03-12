@@ -120,6 +120,11 @@ interface WorkspaceIncident {
   updateWhen: string | null;
 }
 
+interface WorkspaceStatusBundle {
+  incidents: ProviderIncidentSnapshot[];
+  serviceStatus: ProviderServiceStatusSnapshot;
+}
+
 const readWorkspaceProducts = (value: unknown): string[] => {
   if (!Array.isArray(value)) {
     return [];
@@ -261,17 +266,13 @@ const fetchWorkspaceServiceStatus = async (
   return bundle.serviceStatus;
 };
 
-const createWorkspaceServiceStatusSnapshot = (
+const selectMostSevereWorkspaceIncident = (
   incidents: WorkspaceIncident[],
-): ProviderServiceStatusSnapshot => {
-  if (incidents.length === 0) {
-    return createServiceStatusSnapshot("none", explicitNull, explicitNull);
-  }
-
+): [WorkspaceIncident, ProviderServiceStatusIndicator] | null => {
   const firstIncident = incidents[0];
 
   if (firstIncident === undefined) {
-    return createServiceStatusSnapshot("none", explicitNull, explicitNull);
+    return explicitNull;
   }
 
   let bestIncident = firstIncident;
@@ -286,6 +287,19 @@ const createWorkspaceServiceStatusSnapshot = (
     }
   }
 
+  return [bestIncident, bestIndicator];
+};
+
+const createWorkspaceServiceStatusSnapshot = (
+  incidents: WorkspaceIncident[],
+): ProviderServiceStatusSnapshot => {
+  const selectedIncident = selectMostSevereWorkspaceIncident(incidents);
+
+  if (selectedIncident === null) {
+    return createServiceStatusSnapshot("none", explicitNull, explicitNull);
+  }
+  const [bestIncident, bestIndicator] = selectedIncident;
+
   return createServiceStatusSnapshot(
     bestIndicator,
     extractWorkspaceSummary(bestIncident.updateText ?? bestIncident.summaryText),
@@ -293,13 +307,15 @@ const createWorkspaceServiceStatusSnapshot = (
   );
 };
 
+const createWorkspaceStatusBundle = (incidents: WorkspaceIncident[]): WorkspaceStatusBundle => ({
+  incidents: incidents.map((incident) => createWorkspaceIncidentSnapshot(incident)),
+  serviceStatus: createWorkspaceServiceStatusSnapshot(incidents),
+});
+
 const fetchWorkspaceStatusBundle = async (
   host: RuntimeHost,
   productId: string,
-): Promise<{
-  incidents: ProviderIncidentSnapshot[];
-  serviceStatus: ProviderServiceStatusSnapshot;
-}> => {
+): Promise<WorkspaceStatusBundle> => {
   const response = await host.http.request(googleWorkspaceIncidentsUrl, {
     method: "GET",
     timeoutMs: statusRequestTimeoutMs,
@@ -311,10 +327,7 @@ const fetchWorkspaceStatusBundle = async (
 
   const incidents = readActiveWorkspaceIncidents(parseJsonText(response.bodyText), productId);
 
-  return {
-    incidents: incidents.map((incident) => createWorkspaceIncidentSnapshot(incident)),
-    serviceStatus: createWorkspaceServiceStatusSnapshot(incidents),
-  };
+  return createWorkspaceStatusBundle(incidents);
 };
 
 const fetchWorkspaceIncidents = async (
@@ -336,44 +349,34 @@ const fetchProviderServiceStatus = async (
   return fetchWorkspaceServiceStatus(host, source.productId);
 };
 
+const withFallback = async <Value>(load: () => Promise<Value>, fallback: Value): Promise<Value> => {
+  try {
+    return await load();
+  } catch {
+    return fallback;
+  }
+};
+
 const tryFetchProviderServiceStatus = async (
   host: RuntimeHost,
   source: ProviderServiceStatusSource,
-): Promise<ProviderServiceStatusSnapshot | null> => {
-  try {
-    return await fetchProviderServiceStatus(host, source);
-  } catch {
-    return explicitNull;
-  }
-};
+): Promise<ProviderServiceStatusSnapshot | null> =>
+  withFallback(() => fetchProviderServiceStatus(host, source), explicitNull);
 
 const tryFetchWorkspaceIncidents = async (
   host: RuntimeHost,
   productId: string,
-): Promise<ProviderIncidentSnapshot[]> => {
-  try {
-    return await fetchWorkspaceIncidents(host, productId);
-  } catch {
-    return [];
-  }
-};
+): Promise<ProviderIncidentSnapshot[]> =>
+  withFallback(() => fetchWorkspaceIncidents(host, productId), []);
 
 const tryFetchWorkspaceStatusBundle = async (
   host: RuntimeHost,
   productId: string,
-): Promise<{
-  incidents: ProviderIncidentSnapshot[];
-  serviceStatus: ProviderServiceStatusSnapshot | null;
-}> => {
-  try {
-    return await fetchWorkspaceStatusBundle(host, productId);
-  } catch {
-    return {
-      incidents: [],
-      serviceStatus: explicitNull,
-    };
-  }
-};
+): Promise<WorkspaceStatusBundle & { serviceStatus: ProviderServiceStatusSnapshot | null }> =>
+  withFallback(() => fetchWorkspaceStatusBundle(host, productId), {
+    incidents: [],
+    serviceStatus: explicitNull,
+  });
 
 export {
   fetchProviderServiceStatus,
