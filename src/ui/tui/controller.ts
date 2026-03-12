@@ -1,4 +1,13 @@
 import { getSettingsItems } from "@/ui/tui/descriptors.ts";
+import {
+  appendClaudeTokenAccountEditorText,
+  cancelClaudeTokenAccountEditor,
+  closeClaudeTokenAccountEditor,
+  deleteClaudeTokenAccountEditorText,
+  openClaudeTokenAccountEditor,
+  setClaudeTokenAccountEditorError,
+  switchClaudeTokenAccountEditorField,
+} from "@/ui/tui/token-account-editor.ts";
 import type { AppStore } from "@/core/store/app-store.ts";
 import type { AppStoreState } from "@/core/store/state.ts";
 import type {
@@ -439,18 +448,7 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   };
 
   const startClaudeTokenAccountEditor = (): void => {
-    setLocalState({
-      ...localState,
-      footerMessage: null,
-      modalFocus: "editor",
-      tokenAccountEditor: {
-        errorMessage: null,
-        field: "label",
-        label: "",
-        providerId: "claude",
-        token: "",
-      },
-    });
+    setLocalState(openClaudeTokenAccountEditor(localState));
     emit();
   };
 
@@ -544,83 +542,22 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   };
 
   const cancelTokenAccountEditor = (): void => {
-    setLocalState({
-      ...localState,
-      footerMessage: "Cancelled Claude token account entry.",
-      modalFocus: "items",
-      tokenAccountEditor: null,
-    });
+    setLocalState(cancelClaudeTokenAccountEditor(localState));
     emit();
   };
 
   const switchTokenAccountEditorField = (): void => {
-    if (localState.tokenAccountEditor === null) {
-      return;
-    }
-
-    setLocalState({
-      ...localState,
-      tokenAccountEditor: {
-        ...localState.tokenAccountEditor,
-        field: localState.tokenAccountEditor.field === "label" ? "token" : "label",
-      },
-    });
+    setLocalState(switchClaudeTokenAccountEditorField(localState));
     emit();
   };
 
   const appendTokenAccountEditorText = (value: string): void => {
-    if (localState.tokenAccountEditor === null) {
-      return;
-    }
-
-    if (localState.tokenAccountEditor.field === "label") {
-      setLocalState({
-        ...localState,
-        tokenAccountEditor: {
-          ...localState.tokenAccountEditor,
-          errorMessage: null,
-          label: `${localState.tokenAccountEditor.label}${value}`,
-        },
-      });
-      emit();
-      return;
-    }
-
-    setLocalState({
-      ...localState,
-      tokenAccountEditor: {
-        ...localState.tokenAccountEditor,
-        errorMessage: null,
-        token: `${localState.tokenAccountEditor.token}${value}`,
-      },
-    });
+    setLocalState(appendClaudeTokenAccountEditorText(localState, value));
     emit();
   };
 
   const deleteTokenAccountEditorText = (): void => {
-    if (localState.tokenAccountEditor === null) {
-      return;
-    }
-
-    if (localState.tokenAccountEditor.field === "label") {
-      setLocalState({
-        ...localState,
-        tokenAccountEditor: {
-          ...localState.tokenAccountEditor,
-          label: localState.tokenAccountEditor.label.slice(0, -1),
-        },
-      });
-      emit();
-      return;
-    }
-
-    setLocalState({
-      ...localState,
-      tokenAccountEditor: {
-        ...localState.tokenAccountEditor,
-        token: localState.tokenAccountEditor.token.slice(0, -1),
-      },
-    });
+    setLocalState(deleteClaudeTokenAccountEditorText(localState));
     emit();
   };
 
@@ -633,13 +570,9 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     const trimmedToken = localState.tokenAccountEditor.token.trim();
 
     if (trimmedLabel === "" || trimmedToken === "") {
-      setLocalState({
-        ...localState,
-        tokenAccountEditor: {
-          ...localState.tokenAccountEditor,
-          errorMessage: "Both label and token are required.",
-        },
-      });
+      setLocalState(
+        setClaudeTokenAccountEditorError(localState, "Both label and token are required."),
+      );
       emit();
       return;
     }
@@ -659,11 +592,7 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
         })),
       `Added Claude token account ${trimmedLabel}.`,
     );
-    setLocalState({
-      ...localState,
-      modalFocus: "items",
-      tokenAccountEditor: null,
-    });
+    setLocalState(closeClaudeTokenAccountEditor(localState));
     emit();
   };
 
