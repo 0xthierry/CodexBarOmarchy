@@ -708,6 +708,80 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     return false;
   };
 
+  const handleSettingsModalKeyPress = (key: TuiKeyInput): boolean => {
+    if (!localState.isSettingsOpen) {
+      return false;
+    }
+
+    if (
+      isDigitShortcut(key) ||
+      key.name === "h" ||
+      key.name === "l" ||
+      key.name === "left" ||
+      key.name === "right"
+    ) {
+      return true;
+    }
+
+    if (key.name === "escape") {
+      closeSettings();
+      return true;
+    }
+
+    if (isTabKey(key)) {
+      if (localState.modalFocus === "choices") {
+        focusModalItems();
+      } else {
+        focusModalChoices();
+      }
+
+      return true;
+    }
+
+    if (isEnterKey(key)) {
+      if (localState.modalFocus === "choices") {
+        void applySelectedChoice();
+      } else {
+        void activateSelectedSettingsItem();
+      }
+
+      return true;
+    }
+
+    if (key.name === "space") {
+      void activateSelectedSettingsItem();
+      return true;
+    }
+
+    return false;
+  };
+
+  const handleProviderNavigationKeyPress = (key: TuiKeyInput): boolean => {
+    if (key.name === "h" || key.name === "left") {
+      void selectProviderByOffset(-1);
+      return true;
+    }
+
+    if (key.name === "l" || key.name === "right") {
+      void selectProviderByOffset(1);
+      return true;
+    }
+
+    if (!isDigitShortcut(key)) {
+      return false;
+    }
+
+    const providerIndex = Number(key.name) - 1;
+    const providerId = options.appStore.getState().providerViews[providerIndex]?.id;
+
+    if (providerId === undefined) {
+      return false;
+    }
+
+    void selectProvider(providerId);
+    return true;
+  };
+
   const handleKeyPress = (key: TuiKeyInput): boolean => {
     if (key.ctrl && key.name === "c") {
       requestQuit();
@@ -733,67 +807,11 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
       return true;
     }
 
-    if (localState.isSettingsOpen) {
-      if (
-        isDigitShortcut(key) ||
-        key.name === "h" ||
-        key.name === "l" ||
-        key.name === "left" ||
-        key.name === "right"
-      ) {
-        return true;
-      }
-
-      if (key.name === "escape") {
-        closeSettings();
-        return true;
-      }
-
-      if (isTabKey(key)) {
-        if (localState.modalFocus === "choices") {
-          focusModalItems();
-        } else {
-          focusModalChoices();
-        }
-        return true;
-      }
-
-      if (isEnterKey(key)) {
-        if (localState.modalFocus === "choices") {
-          void applySelectedChoice();
-        } else {
-          void activateSelectedSettingsItem();
-        }
-        return true;
-      }
-
-      if (key.name === "space") {
-        void activateSelectedSettingsItem();
-        return true;
-      }
-    }
-
-    if (key.name === "h" || key.name === "left") {
-      void selectProviderByOffset(-1);
+    if (handleSettingsModalKeyPress(key)) {
       return true;
     }
 
-    if (key.name === "l" || key.name === "right") {
-      void selectProviderByOffset(1);
-      return true;
-    }
-
-    if (isDigitShortcut(key)) {
-      const providerIndex = Number(key.name) - 1;
-      const providerId = options.appStore.getState().providerViews[providerIndex]?.id;
-
-      if (providerId !== undefined) {
-        void selectProvider(providerId);
-        return true;
-      }
-    }
-
-    return false;
+    return handleProviderNavigationKeyPress(key);
   };
 
   const unsubscribeFromStore = options.appStore.subscribe(() => {
