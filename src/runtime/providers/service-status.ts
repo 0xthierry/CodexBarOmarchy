@@ -125,6 +125,11 @@ interface WorkspaceStatusBundle {
   serviceStatus: ProviderServiceStatusSnapshot;
 }
 
+interface WorkspaceStatusBundleFallback {
+  incidents: ProviderIncidentSnapshot[];
+  serviceStatus: ProviderServiceStatusSnapshot | null;
+}
+
 type ServiceStatusLoadFailureKind = "fetch_failed" | "invalid_payload";
 
 interface ServiceStatusLoadSuccess<Value> {
@@ -446,11 +451,18 @@ const loadWorkspaceStatusBundle = async (
 const tryFetchWorkspaceStatusBundle = async (
   host: RuntimeHost,
   productId: string,
-): Promise<WorkspaceStatusBundle & { serviceStatus: ProviderServiceStatusSnapshot | null }> =>
-  withFallback(() => fetchWorkspaceStatusBundle(host, productId), {
+): Promise<WorkspaceStatusBundleFallback> => {
+  const result = await loadServiceStatus(() => fetchWorkspaceStatusBundle(host, productId));
+
+  if (result.status === "ok") {
+    return result.value;
+  }
+
+  return {
     incidents: [],
     serviceStatus: explicitNull,
-  });
+  };
+};
 
 export {
   fetchProviderServiceStatus,

@@ -3,28 +3,14 @@ import type {
   CodexProviderAdapter,
   ProviderRefreshActionResult,
 } from "@/core/actions/provider-adapter.ts";
+import type { CodexProviderConfig } from "@/core/providers/codex.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeCommandLineSession, RuntimeHost } from "@/runtime/host.ts";
 import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
 import { resolveCodexWebSession } from "@/runtime/providers/codex-web-auth.ts";
 import { fetchCodexWhamDashboard } from "@/runtime/providers/codex-web-wham.ts";
-import {
-  createRefreshError,
-  createRefreshSuccess,
-  createSnapshot,
-  formatPercent,
-  isRecord,
-  joinPath,
-  parseJsonText,
-  readFiniteNumber,
-  readJsonFile,
-  readJwtEmail,
-  readNestedRecord,
-  readString,
-  runResolvedRefresh,
-  withProviderDetails,
-  writeJsonFile,
-} from "@/runtime/providers/shared.ts";
+import { createRefreshError, createRefreshSuccess, createSnapshot, formatPercent, isRecord, joinPath, parseJsonText, readFiniteNumber, readJsonFile, readJwtEmail, readNestedRecord, readString, runResolvedRefresh, withProviderDetails, writeJsonFile } from '@/runtime/providers/shared.ts';
+import type { ProviderMetricInput } from '@/runtime/providers/shared.ts';
 import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
 
 const codexAppServerArgs = ["-s", "read-only", "-a", "never", "app-server"] as const;
@@ -36,13 +22,6 @@ const codexUsageApiPath = "/wham/usage";
 const codexStatusPageUrl = "https://status.openai.com";
 
 type CodexResolvedSource = "cli" | "oauth";
-
-interface CodexProviderConfig {
-  cookieHeader: string;
-  cookieSource: "auto" | "manual" | "off";
-  extrasEnabled: boolean;
-  source: "auto" | "cli" | "oauth";
-}
 
 interface CodexAppServerAccountResult {
   account?: {
@@ -416,7 +395,7 @@ const parseCodexOAuthSnapshot = (
   const secondaryWindow = usageResponse.rateLimit
     ? readNestedRecord(usageResponse.rateLimit, "secondary_window")
     : explicitNull;
-  const metrics = [];
+  const metrics: ProviderMetricInput[] = [];
   const primaryPercent = primaryWindow
     ? readFiniteNumber(primaryWindow, "used_percent")
     : explicitNull;
@@ -684,7 +663,7 @@ const parseCodexCliSnapshot = (
   version: string | null,
 ): ProviderRefreshActionResult<"codex"> => {
   const { rateLimits } = rateLimitResult;
-  const metrics = [];
+  const metrics: ProviderMetricInput[] = [];
   const primaryPercent = rateLimits?.primary?.usedPercent;
   const secondaryPercent = rateLimits?.secondary?.usedPercent;
   let creditBalance = NaN;
@@ -977,7 +956,8 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
 
     return createSuccessfulProviderActionResult("codex", "login", "Opened Codex login.");
   },
-  refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"codex">> => runResolvedRefresh({
+  refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"codex">> =>
+    runResolvedRefresh({
       finalizeResult: (result) => finalizeCodexRefresh(host, providerConfig, result),
       providerId: "codex",
       refreshFromResolvedSource: (resolvedSource) =>

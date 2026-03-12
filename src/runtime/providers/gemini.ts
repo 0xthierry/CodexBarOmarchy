@@ -5,25 +5,8 @@ import type {
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
-import {
-  createProviderQuotaBucketSnapshot,
-  createRefreshError,
-  createRefreshSuccess,
-  createSnapshot,
-  formatFractionPercent,
-  isRecord,
-  joinPath,
-  parseJsonText,
-  readCommandVersion,
-  readFiniteNumber,
-  readJsonFile,
-  readJwtEmail,
-  readNestedRecord,
-  readString,
-  runResolvedRefresh,
-  withProviderDetails,
-  writeJsonFile,
-} from "@/runtime/providers/shared.ts";
+import { createProviderQuotaBucketSnapshot, createRefreshError, createRefreshSuccess, createSnapshot, formatFractionPercent, isRecord, joinPath, parseJsonText, readCommandVersion, readFiniteNumber, readJsonFile, readJwtEmail, readNestedRecord, readString, runResolvedRefresh, withProviderDetails, writeJsonFile } from '@/runtime/providers/shared.ts';
+import type { ProviderMetricInput } from '@/runtime/providers/shared.ts';
 import { tryFetchWorkspaceStatusBundle } from "@/runtime/providers/service-status.ts";
 
 const geminiLoadCodeAssistEndpoint =
@@ -419,7 +402,7 @@ const parseGeminiQuotaSnapshot = (
     }
   }
 
-  const metrics = [...metricsByLabel.entries()].map(([label, metric]) => ({
+  const metrics: ProviderMetricInput[] = [...metricsByLabel.entries()].map(([label, metric]) => ({
     detail: metric.detail,
     kind: label === "Pro" ? "pro" : "flash",
     label,
@@ -679,7 +662,8 @@ const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter =
 
     return createSuccessfulProviderActionResult("gemini", "login", "Opened Gemini login.");
   },
-  refresh: async (): Promise<ProviderRefreshActionResult<"gemini">> => runResolvedRefresh({
+  refresh: async (): Promise<ProviderRefreshActionResult<"gemini">> =>
+    runResolvedRefresh({
       finalizeResult: (result) => attachGeminiWorkspaceStatus(host, result),
       providerId: "gemini",
       refreshFromResolvedSource: (resolvedSource) =>
