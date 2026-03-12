@@ -53,6 +53,12 @@ Launch the interactive TUI:
 bun run tui
 ```
 
+Run the tray entrypoint:
+
+```bash
+bun run tray
+```
+
 Print the current provider state as JSON:
 
 ```bash
@@ -69,6 +75,8 @@ Common keys in the TUI:
 - `Ctrl+C`: emergency exit
 
 If `stdout` is not a TTY, `bun run tui` falls back to a plain-text snapshot instead of the interactive renderer.
+
+The current tray slice is manual-start only. Install packaging and session autostart are deferred; the tray launcher is intentionally shaped so those can be added later without rewriting the tray service.
 
 ## Configuration
 
