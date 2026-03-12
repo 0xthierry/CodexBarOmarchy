@@ -125,6 +125,23 @@ interface WorkspaceStatusBundle {
   serviceStatus: ProviderServiceStatusSnapshot;
 }
 
+type ServiceStatusLoadFailureKind = "fetch_failed" | "invalid_payload";
+
+interface ServiceStatusLoadSuccess<Value> {
+  status: "ok";
+  value: Value;
+}
+
+interface ServiceStatusLoadUnavailable {
+  failureKind: ServiceStatusLoadFailureKind;
+  message: string;
+  status: "unavailable";
+}
+
+type ServiceStatusLoadResult<Value> =
+  | ServiceStatusLoadSuccess<Value>
+  | ServiceStatusLoadUnavailable;
+
 const readWorkspaceProducts = (value: unknown): string[] => {
   if (!Array.isArray(value)) {
     return [];
@@ -349,13 +366,58 @@ const fetchProviderServiceStatus = async (
   return fetchWorkspaceServiceStatus(host, source.productId);
 };
 
-const withFallback = async <Value>(load: () => Promise<Value>, fallback: Value): Promise<Value> => {
+const classifyServiceStatusLoadFailure = (
+  error: unknown,
+): Omit<ServiceStatusLoadUnavailable, "status"> => {
+  if (
+    error instanceof SyntaxError ||
+    error instanceof TypeError ||
+    (error instanceof Error &&
+      (error.message.includes("response was not") || error.message.includes("did not include")))
+  ) {
+    return {
+      failureKind: "invalid_payload",
+      message: error instanceof Error ? error.message : "Service status payload was invalid.",
+    };
+  }
+
+  return {
+    failureKind: "fetch_failed",
+    message: error instanceof Error ? error.message : "Service status fetch failed.",
+  };
+};
+
+const loadServiceStatus = async <Value>(
+  load: () => Promise<Value>,
+): Promise<ServiceStatusLoadResult<Value>> => {
   try {
-    return await load();
-  } catch {
-    return fallback;
+    return {
+      status: "ok",
+      value: await load(),
+    };
+  } catch (error) {
+    return {
+      ...classifyServiceStatusLoadFailure(error),
+      status: "unavailable",
+    };
   }
 };
+
+const withFallback = async <Value>(load: () => Promise<Value>, fallback: Value): Promise<Value> => {
+  const result = await loadServiceStatus(load);
+
+  if (result.status === "ok") {
+    return result.value;
+  }
+
+  return fallback;
+};
+
+const loadProviderServiceStatus = async (
+  host: RuntimeHost,
+  source: ProviderServiceStatusSource,
+): Promise<ServiceStatusLoadResult<ProviderServiceStatusSnapshot>> =>
+  loadServiceStatus(() => fetchProviderServiceStatus(host, source));
 
 const tryFetchProviderServiceStatus = async (
   host: RuntimeHost,
@@ -363,11 +425,23 @@ const tryFetchProviderServiceStatus = async (
 ): Promise<ProviderServiceStatusSnapshot | null> =>
   withFallback(() => fetchProviderServiceStatus(host, source), explicitNull);
 
+const loadWorkspaceIncidents = async (
+  host: RuntimeHost,
+  productId: string,
+): Promise<ServiceStatusLoadResult<ProviderIncidentSnapshot[]>> =>
+  loadServiceStatus(() => fetchWorkspaceIncidents(host, productId));
+
 const tryFetchWorkspaceIncidents = async (
   host: RuntimeHost,
   productId: string,
 ): Promise<ProviderIncidentSnapshot[]> =>
   withFallback(() => fetchWorkspaceIncidents(host, productId), []);
+
+const loadWorkspaceStatusBundle = async (
+  host: RuntimeHost,
+  productId: string,
+): Promise<ServiceStatusLoadResult<WorkspaceStatusBundle>> =>
+  loadServiceStatus(() => fetchWorkspaceStatusBundle(host, productId));
 
 const tryFetchWorkspaceStatusBundle = async (
   host: RuntimeHost,
@@ -380,8 +454,13 @@ const tryFetchWorkspaceStatusBundle = async (
 
 export {
   fetchProviderServiceStatus,
+  loadProviderServiceStatus,
+  loadWorkspaceIncidents,
+  loadWorkspaceStatusBundle,
   tryFetchWorkspaceStatusBundle,
   tryFetchWorkspaceIncidents,
   tryFetchProviderServiceStatus,
   type ProviderServiceStatusSource,
+  type ServiceStatusLoadFailureKind,
+  type ServiceStatusLoadResult,
 };

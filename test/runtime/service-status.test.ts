@@ -7,6 +7,8 @@ import type {
 } from "../../src/runtime/host.ts";
 import {
   fetchProviderServiceStatus,
+  loadProviderServiceStatus,
+  loadWorkspaceStatusBundle,
   tryFetchProviderServiceStatus,
   tryFetchWorkspaceStatusBundle,
 } from "../../src/runtime/providers/service-status.ts";
@@ -218,6 +220,29 @@ test("tryFetchProviderServiceStatus returns null when the upstream response is i
   expect(serviceStatus).toBeNull();
 });
 
+test("loadProviderServiceStatus reports invalid payload separately from availability", async () => {
+  const { host } = createHostFixture({
+    "GET https://status.example.com/api/v2/status.json": [
+      createJsonResponse({
+        page: {
+          updated_at: "2026-03-11T09:15:00Z",
+        },
+      }),
+    ],
+  });
+
+  const result = await loadProviderServiceStatus(host, {
+    baseUrl: "https://status.example.com",
+    kind: "statuspage",
+  });
+
+  expect(result).toEqual({
+    failureKind: "invalid_payload",
+    message: "Statuspage response did not include a status object.",
+    status: "unavailable",
+  });
+});
+
 test("tryFetchWorkspaceStatusBundle returns empty defaults when the workspace payload is invalid", async () => {
   const { host } = createHostFixture({
     "GET https://www.google.com/appsstatus/dashboard/incidents.json": [
@@ -232,5 +257,18 @@ test("tryFetchWorkspaceStatusBundle returns empty defaults when the workspace pa
   expect(statusBundle).toEqual({
     incidents: [],
     serviceStatus: null,
+  });
+});
+
+test("loadWorkspaceStatusBundle reports fetch failures separately from empty results", async () => {
+  const { host } = createHostFixture({});
+
+  const result = await loadWorkspaceStatusBundle(host, "gemini");
+
+  expect(result).toEqual({
+    failureKind: "fetch_failed",
+    message:
+      "No fake HTTP response registered for GET https://www.google.com/appsstatus/dashboard/incidents.json.",
+    status: "unavailable",
   });
 });
