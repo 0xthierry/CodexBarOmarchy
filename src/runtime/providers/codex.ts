@@ -36,6 +36,13 @@ const codexStatusPageUrl = "https://status.openai.com";
 
 type CodexResolvedSource = "cli" | "oauth";
 
+interface CodexProviderConfig {
+  cookieHeader: string;
+  cookieSource: "auto" | "manual" | "off";
+  extrasEnabled: boolean;
+  source: "auto" | "cli" | "oauth";
+}
+
 interface CodexAppServerAccountResult {
   account?: {
     email?: string;
@@ -815,6 +822,146 @@ const resolveCodexSource = async (
   return explicitNull;
 };
 
+const attachCodexServiceStatus = async (
+  host: RuntimeHost,
+  result: ProviderRefreshActionResult<"codex">,
+): Promise<ProviderRefreshActionResult<"codex">> => {
+  if (result.snapshot === null) {
+    return result;
+  }
+
+  return {
+    ...result,
+    snapshot: {
+      ...result.snapshot,
+      serviceStatus: await tryFetchProviderServiceStatus(host, {
+        baseUrl: codexStatusPageUrl,
+        kind: "statuspage",
+      }),
+    },
+  };
+};
+
+const attachCodexWebDetails = async (
+  host: RuntimeHost,
+  providerConfig: CodexProviderConfig,
+  result: ProviderRefreshActionResult<"codex">,
+): Promise<ProviderRefreshActionResult<"codex">> => {
+  if (
+    result.snapshot === null ||
+    !providerConfig.extrasEnabled ||
+    providerConfig.cookieSource === "off"
+  ) {
+    return result;
+  }
+
+  try {
+    const webSession = await resolveCodexWebSession(host, {
+      cookieHeader: providerConfig.cookieHeader,
+      cookieSource: providerConfig.cookieSource,
+      expectedEmail: result.snapshot.identity.accountEmail,
+    });
+
+    if (webSession === null) {
+      return result;
+    }
+
+    const dashboard = await fetchCodexWhamDashboard(host, webSession);
+
+    if (dashboard === null) {
+      return result;
+    }
+
+    return {
+      ...result,
+      snapshot: {
+        ...result.snapshot,
+        identity: {
+          ...result.snapshot.identity,
+          accountEmail: result.snapshot.identity.accountEmail ?? webSession.accountEmail,
+        },
+        providerDetails: {
+          dashboard,
+          kind: "codex",
+          tokenCost:
+            result.snapshot.providerDetails?.kind === "codex"
+              ? result.snapshot.providerDetails.tokenCost
+              : explicitNull,
+        },
+      },
+    };
+  } catch {
+    return result;
+  }
+};
+
+const attachCodexTokenCost = async (
+  host: RuntimeHost,
+  result: ProviderRefreshActionResult<"codex">,
+): Promise<ProviderRefreshActionResult<"codex">> => {
+  if (result.snapshot === null) {
+    return result;
+  }
+
+  const tokenCost = await tryFetchCodexTokenCost(host);
+
+  if (
+    tokenCost === null ||
+    (tokenCost.daily.length === 0 && tokenCost.today === null && tokenCost.last30Days === null)
+  ) {
+    return result;
+  }
+
+  const existingDetails =
+    result.snapshot.providerDetails?.kind === "codex"
+      ? result.snapshot.providerDetails
+      : explicitNull;
+
+  return {
+    ...result,
+    snapshot: {
+      ...result.snapshot,
+      providerDetails: {
+        dashboard: existingDetails?.dashboard ?? explicitNull,
+        kind: "codex",
+        tokenCost,
+      },
+    },
+  };
+};
+
+const finalizeCodexRefresh = async (
+  host: RuntimeHost,
+  providerConfig: CodexProviderConfig,
+  result: ProviderRefreshActionResult<"codex">,
+): Promise<ProviderRefreshActionResult<"codex">> =>
+  attachCodexServiceStatus(
+    host,
+    await attachCodexTokenCost(host, await attachCodexWebDetails(host, providerConfig, result)),
+  );
+
+const refreshCodexFromResolvedSource = async (
+  host: RuntimeHost,
+  resolvedSource: CodexResolvedSource,
+  providerConfig: CodexProviderConfig,
+): Promise<ProviderRefreshActionResult<"codex">> => {
+  if (resolvedSource === "oauth") {
+    const oauthResult = await fetchCodexOAuthSnapshot(host);
+
+    if (providerConfig.source !== "auto" || oauthResult.status !== "error") {
+      return oauthResult;
+    }
+
+    if ((await host.commands.which("codex")) === null) {
+      return oauthResult;
+    }
+
+    return fetchCodexCliSnapshot(host);
+  }
+
+  return fetchCodexCliSnapshot(host);
+};
+
 const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => ({
   login: async (): Promise<
     ReturnType<typeof createSuccessfulProviderActionResult<"codex", "login">>
@@ -829,129 +976,10 @@ const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => 
     if (resolvedSource === null) {
       return createRefreshError("codex", "Codex credentials or CLI are unavailable.");
     }
-
-    const attachServiceStatus = async (
-      result: ProviderRefreshActionResult<"codex">,
-    ): Promise<ProviderRefreshActionResult<"codex">> => {
-      if (result.snapshot === null) {
-        return result;
-      }
-
-      return {
-        ...result,
-        snapshot: {
-          ...result.snapshot,
-          serviceStatus: await tryFetchProviderServiceStatus(host, {
-            baseUrl: codexStatusPageUrl,
-            kind: "statuspage",
-          }),
-        },
-      };
-    };
-
-    const attachWebDetails = async (
-      result: ProviderRefreshActionResult<"codex">,
-    ): Promise<ProviderRefreshActionResult<"codex">> => {
-      if (
-        result.snapshot === null ||
-        !providerConfig.extrasEnabled ||
-        providerConfig.cookieSource === "off"
-      ) {
-        return result;
-      }
-
-      try {
-        const webSession = await resolveCodexWebSession(host, {
-          cookieHeader: providerConfig.cookieHeader,
-          cookieSource: providerConfig.cookieSource,
-          expectedEmail: result.snapshot.identity.accountEmail,
-        });
-
-        if (webSession === null) {
-          return result;
-        }
-
-        const dashboard = await fetchCodexWhamDashboard(host, webSession);
-
-        if (dashboard === null) {
-          return result;
-        }
-
-        return {
-          ...result,
-          snapshot: {
-            ...result.snapshot,
-            identity: {
-              ...result.snapshot.identity,
-              accountEmail: result.snapshot.identity.accountEmail ?? webSession.accountEmail,
-            },
-            providerDetails: {
-              dashboard,
-              kind: "codex",
-              tokenCost:
-                result.snapshot.providerDetails?.kind === "codex"
-                  ? result.snapshot.providerDetails.tokenCost
-                  : explicitNull,
-            },
-          },
-        };
-      } catch {
-        return result;
-      }
-    };
-
-    const attachTokenCost = async (
-      result: ProviderRefreshActionResult<"codex">,
-    ): Promise<ProviderRefreshActionResult<"codex">> => {
-      if (result.snapshot === null) {
-        return result;
-      }
-
-      const tokenCost = await tryFetchCodexTokenCost(host);
-
-      if (
-        tokenCost === null ||
-        (tokenCost.daily.length === 0 && tokenCost.today === null && tokenCost.last30Days === null)
-      ) {
-        return result;
-      }
-
-      const existingDetails =
-        result.snapshot.providerDetails?.kind === "codex"
-          ? result.snapshot.providerDetails
-          : explicitNull;
-
-      return {
-        ...result,
-        snapshot: {
-          ...result.snapshot,
-          providerDetails: {
-            dashboard: existingDetails?.dashboard ?? explicitNull,
-            kind: "codex",
-            tokenCost,
-          },
-        },
-      };
-    };
-
-    if (resolvedSource === "oauth") {
-      const oauthResult = await fetchCodexOAuthSnapshot(host);
-
-      if (providerConfig.source !== "auto" || oauthResult.status !== "error") {
-        return attachServiceStatus(await attachTokenCost(await attachWebDetails(oauthResult)));
-      }
-
-      if ((await host.commands.which("codex")) === null) {
-        return attachServiceStatus(await attachTokenCost(await attachWebDetails(oauthResult)));
-      }
-
-      return attachServiceStatus(
-        await attachTokenCost(await attachWebDetails(await fetchCodexCliSnapshot(host))),
-      );
-    }
-
-    return attachServiceStatus(
-      await attachTokenCost(await attachWebDetails(await fetchCodexCliSnapshot(host))),
+    return finalizeCodexRefresh(
+      host,
+      providerConfig,
+      await refreshCodexFromResolvedSource(host, resolvedSource, providerConfig),
     );
   },
 });
