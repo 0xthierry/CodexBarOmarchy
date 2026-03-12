@@ -632,6 +632,43 @@ const fetchGeminiApiSnapshot = async (
   return fetchQuotaSnapshot(credentials, true);
 };
 
+const attachGeminiWorkspaceStatus = async (
+  host: RuntimeHost,
+  result: ProviderRefreshActionResult<"gemini">,
+): Promise<ProviderRefreshActionResult<"gemini">> => {
+  if (result.snapshot === null) {
+    return result;
+  }
+
+  const workspaceStatus = await tryFetchWorkspaceStatusBundle(host, geminiStatusWorkspaceProductId);
+
+  return {
+    ...result,
+    snapshot: {
+      ...result.snapshot,
+      providerDetails:
+        result.snapshot.providerDetails?.kind === "gemini"
+          ? {
+              ...result.snapshot.providerDetails,
+              incidents: workspaceStatus.incidents,
+            }
+          : result.snapshot.providerDetails,
+      serviceStatus: workspaceStatus.serviceStatus,
+    },
+  };
+};
+
+const refreshGeminiFromResolvedSource = async (
+  host: RuntimeHost,
+  resolvedSource: GeminiResolvedSource,
+): Promise<ProviderRefreshActionResult<"gemini">> => {
+  if (resolvedSource === "api") {
+    return fetchGeminiApiSnapshot(host);
+  }
+
+  return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");
+};
+
 const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter => ({
   login: async (): Promise<
     ReturnType<typeof createSuccessfulProviderActionResult<"gemini", "login">>
@@ -646,32 +683,10 @@ const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter =
     if (resolvedSource === null) {
       return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");
     }
-
-    const result = await fetchGeminiApiSnapshot(host);
-
-    if (result.snapshot === null) {
-      return result;
-    }
-
-    const workspaceStatus = await tryFetchWorkspaceStatusBundle(
+    return attachGeminiWorkspaceStatus(
       host,
-      geminiStatusWorkspaceProductId,
+      await refreshGeminiFromResolvedSource(host, resolvedSource),
     );
-
-    return {
-      ...result,
-      snapshot: {
-        ...result.snapshot,
-        providerDetails:
-          result.snapshot.providerDetails?.kind === "gemini"
-            ? {
-                ...result.snapshot.providerDetails,
-                incidents: workspaceStatus.incidents,
-              }
-            : result.snapshot.providerDetails,
-        serviceStatus: workspaceStatus.serviceStatus,
-      },
-    };
   },
 });
 
