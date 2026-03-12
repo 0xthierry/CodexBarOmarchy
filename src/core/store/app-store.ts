@@ -69,6 +69,7 @@ type StoreNonRefreshActionResult =
   | OpenTokenFileActionResult
   | RecoveryActionResult
   | ReloadTokenFileActionResult;
+type StoreActionResult = RefreshActionResult | StoreNonRefreshActionResult;
 
 interface AppStore {
   getProviderView: (providerId: ProviderId) => ProviderView;
@@ -298,6 +299,45 @@ const createSnapshotWithState = (
   state,
 });
 
+const resolveRefreshSnapshot = (
+  providerRuntimeState: ProviderRuntimeState,
+  actionResult: RefreshActionResult,
+): ProviderRuntimeState["snapshot"] => {
+  if (actionResult.snapshot !== null) {
+    return {
+      ...actionResult.snapshot,
+      latestError:
+        actionResult.status === "error" ? actionResult.message : actionResult.snapshot.latestError,
+      state: actionResult.status === "error" ? "error" : "ready",
+    };
+  }
+
+  if (actionResult.status === "error") {
+    return createSnapshotWithState(providerRuntimeState, "error", actionResult.message);
+  }
+
+  if (actionResult.status === "success") {
+    return createSnapshotWithState(providerRuntimeState, "ready", explicitNull);
+  }
+
+  return providerRuntimeState.snapshot;
+};
+
+const resolveNextSnapshot = (
+  providerRuntimeState: ProviderRuntimeState,
+  actionResult: StoreActionResult,
+): ProviderRuntimeState["snapshot"] => {
+  if (actionResult.actionName === "refresh") {
+    return resolveRefreshSnapshot(providerRuntimeState, actionResult);
+  }
+
+  if (actionResult.status === "error") {
+    return createSnapshotWithState(providerRuntimeState, "error", actionResult.message);
+  }
+
+  return providerRuntimeState.snapshot;
+};
+
 const markProviderActionRunning = (
   runtime: AppStoreRuntime,
   providerId: ProviderId,
@@ -325,47 +365,9 @@ const markProviderActionRunning = (
 const applyActionResult = (
   runtime: AppStoreRuntime,
   providerId: ProviderId,
-  actionResult:
-    | LoginActionResult
-    | OpenTokenFileActionResult
-    | RecoveryActionResult
-    | RefreshActionResult
-    | ReloadTokenFileActionResult,
+  actionResult: StoreActionResult,
 ): AppStoreState =>
-  updateProviderRuntimeState(runtime, providerId, (providerRuntimeState) => {
-    const nextSnapshot = ((): ProviderRuntimeState["snapshot"] => {
-      if (actionResult.actionName === "refresh") {
-        if (actionResult.snapshot !== null) {
-          const nextState: ProviderRuntimeStatus =
-            actionResult.status === "error" ? "error" : "ready";
-
-          return {
-            ...actionResult.snapshot,
-            latestError:
-              actionResult.status === "error"
-                ? actionResult.message
-                : actionResult.snapshot.latestError,
-            state: nextState,
-          };
-        }
-
-        if (actionResult.status === "error") {
-          return createSnapshotWithState(providerRuntimeState, "error", actionResult.message);
-        }
-
-        if (actionResult.status === "success") {
-          return createSnapshotWithState(providerRuntimeState, "ready", explicitNull);
-        }
-      }
-
-      if (actionResult.status === "error") {
-        return createSnapshotWithState(providerRuntimeState, "error", actionResult.message);
-      }
-
-      return providerRuntimeState.snapshot;
-    })();
-
-    return {
+  updateProviderRuntimeState(runtime, providerId, (providerRuntimeState) => ({
       ...providerRuntimeState,
       actions: {
         ...providerRuntimeState.actions,
@@ -375,9 +377,8 @@ const applyActionResult = (
           actionResult.message,
         ),
       },
-      snapshot: nextSnapshot,
-    };
-  });
+      snapshot: resolveNextSnapshot(providerRuntimeState, actionResult),
+    }));
 
 const createProviderActionExecutor =
   <ActionName extends StoreNonRefreshActionName, ActionResult extends StoreNonRefreshActionResult>(
