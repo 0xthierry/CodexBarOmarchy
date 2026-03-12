@@ -1,12 +1,22 @@
 import { expect, test } from "bun:test";
 import type { RuntimeCommandResult } from "../../src/runtime/host.ts";
-import { activateTrayTui, createOmarchyTerminalLaunchCommand, findMatchingHyprlandClientAddress, parseHyprlandClientsJson } from '../../src/tray/launcher.ts';
-import type { TrayLauncherHost } from '../../src/tray/launcher.ts';
+import {
+  activateTrayTui,
+  createOmarchyTerminalLaunchCommand,
+  parseHyprlandClientsJson,
+  planTrayActivation,
+} from "../../src/tray/launcher.ts";
+import type { TrayLauncherHost } from "../../src/tray/launcher.ts";
 
 interface CommandRecord {
   args: string[];
   command: string;
 }
+
+const repoLocalLaunchTarget = {
+  args: ["run", "--cwd", "/repo", "tui"],
+  command: "bun",
+};
 
 const createCommandResult = (input: Partial<RuntimeCommandResult> = {}): RuntimeCommandResult => ({
   exitCode: input.exitCode ?? 0,
@@ -54,9 +64,9 @@ const createLauncherHostFixture = (
   };
 };
 
-test("findMatchingHyprlandClientAddress prefers class and initialClass over title", () => {
+test("planTrayActivation prefers class and initialClass matches over title matches", () => {
   expect(
-    findMatchingHyprlandClientAddress([
+    planTrayActivation([
       {
         address: "0x1",
         className: null,
@@ -70,7 +80,10 @@ test("findMatchingHyprlandClientAddress prefers class and initialClass over titl
         title: "something else",
       },
     ]),
-  ).toBe("0x2");
+  ).toEqual({
+    address: "0x2",
+    kind: "focus",
+  });
 });
 
 test("parseHyprlandClientsJson rejects malformed JSON", () => {
@@ -79,13 +92,35 @@ test("parseHyprlandClientsJson rejects malformed JSON", () => {
   );
 });
 
-test("createOmarchyTerminalLaunchCommand wraps the repo-local tui target with Omarchy's launcher path", () => {
+test("parseHyprlandClientsJson rejects non-array JSON payloads", () => {
+  expect(() => parseHyprlandClientsJson(JSON.stringify({ clients: [] }))).toThrow(
+    "Expected `hyprctl clients -j` to return a JSON array.",
+  );
+});
+
+test("parseHyprlandClientsJson normalizes missing or non-string client fields to null", () => {
   expect(
-    createOmarchyTerminalLaunchCommand({
-      args: ["run", "--cwd", "/repo", "tui"],
-      command: "bun",
-    }),
-  ).toEqual({
+    parseHyprlandClientsJson(
+      JSON.stringify([
+        {
+          address: "0xabc",
+          class: 42,
+          initialClass: "org.omarchy.agent-stats",
+        },
+      ]),
+    ),
+  ).toEqual([
+    {
+      address: "0xabc",
+      className: null,
+      initialClassName: "org.omarchy.agent-stats",
+      title: null,
+    },
+  ]);
+});
+
+test("createOmarchyTerminalLaunchCommand wraps the repo-local tui target with Omarchy's launcher path", () => {
+  expect(createOmarchyTerminalLaunchCommand(repoLocalLaunchTarget)).toEqual({
     args: [
       "--",
       "xdg-terminal-exec",
@@ -98,6 +133,57 @@ test("createOmarchyTerminalLaunchCommand wraps the repo-local tui target with Om
       "tui",
     ],
     command: "uwsm-app",
+  });
+});
+
+test("planTrayActivation returns a focus action when a matching client exists", () => {
+  expect(
+    planTrayActivation([
+      {
+        address: "0xabc",
+        className: "org.omarchy.agent-stats",
+        initialClassName: null,
+        title: "agent-stats",
+      },
+    ]),
+  ).toEqual({
+    address: "0xabc",
+    kind: "focus",
+  });
+});
+
+test("planTrayActivation returns a launch action with the configured app id when no client matches", () => {
+  expect(
+    planTrayActivation(
+      [
+        {
+          address: "0xdef",
+          className: "kitty",
+          initialClassName: null,
+          title: "shell",
+        },
+      ],
+      {
+        appId: "org.omarchy.agent-stats.dev",
+        launchTarget: repoLocalLaunchTarget,
+      },
+    ),
+  ).toEqual({
+    kind: "launch",
+    launchCommand: {
+      args: [
+        "--",
+        "xdg-terminal-exec",
+        "--app-id=org.omarchy.agent-stats.dev",
+        "-e",
+        "bun",
+        "run",
+        "--cwd",
+        "/repo",
+        "tui",
+      ],
+      command: "uwsm-app",
+    },
   });
 });
 
@@ -144,10 +230,7 @@ test("activateTrayTui launches the TUI when no matching client exists", async ()
   });
 
   await activateTrayTui(host, {
-    launchTarget: {
-      args: ["run", "--cwd", "/repo", "tui"],
-      command: "bun",
-    },
+    launchTarget: repoLocalLaunchTarget,
   });
 
   expect(runRecords).toEqual([
@@ -226,10 +309,7 @@ test("activateTrayTui surfaces detached launch failures", async () => {
 
   try {
     await activateTrayTui(host, {
-      launchTarget: {
-        args: ["run", "--cwd", "/repo", "tui"],
-        command: "bun",
-      },
+      launchTarget: repoLocalLaunchTarget,
     });
     throw new Error("Expected activateTrayTui to reject when the detached launch fails.");
   } catch (error) {

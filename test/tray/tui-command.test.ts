@@ -4,21 +4,15 @@ import {
   resolveRepoRootFromModuleUrl,
 } from "../../src/tray/tui-command.ts";
 
+const syntheticTrayModuleUrl = "file:///workspace/agent-stats/src/tray/tui-command.ts";
+
 test("resolveRepoRootFromModuleUrl walks from src/tray to the repository root", () => {
-  expect(
-    resolveRepoRootFromModuleUrl(
-      "file:///home/thierry/Work/Sideprojects/CodexBarOmarchy/src/tray/tui-command.ts",
-    ),
-  ).toBe("/home/thierry/Work/Sideprojects/CodexBarOmarchy");
+  expect(resolveRepoRootFromModuleUrl(syntheticTrayModuleUrl)).toBe("/workspace/agent-stats");
 });
 
 test("createRepoLocalTuiLaunchTarget returns the repo-local bun tui command", () => {
-  expect(
-    createRepoLocalTuiLaunchTarget(
-      "file:///home/thierry/Work/Sideprojects/CodexBarOmarchy/src/tray/tui-command.ts",
-    ),
-  ).toEqual({
-    args: ["run", "--cwd", "/home/thierry/Work/Sideprojects/CodexBarOmarchy", "tui"],
+  expect(createRepoLocalTuiLaunchTarget(syntheticTrayModuleUrl)).toEqual({
+    args: ["run", "--cwd", "/workspace/agent-stats", "tui"],
     command: "bun",
   });
 });

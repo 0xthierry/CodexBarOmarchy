@@ -1,7 +1,7 @@
 import type { RuntimeCommandResult } from "@/runtime/host.ts";
 import { trayTuiAppId } from "@/tray/constants.ts";
-import { createRepoLocalTuiLaunchTarget } from '@/tray/tui-command.ts';
-import type { TrayLaunchTarget } from '@/tray/tui-command.ts';
+import { createRepoLocalTuiLaunchTarget } from "@/tray/tui-command.ts";
+import type { TrayLaunchTarget } from "@/tray/tui-command.ts";
 
 interface TrayLauncherHost {
   runCommand: (command: string, args: string[]) => Promise<RuntimeCommandResult>;
@@ -15,6 +15,23 @@ interface HyprlandClientRecord {
   initialClassName: string | null;
   title: string | null;
 }
+
+interface TrayCommandSpec {
+  args: string[];
+  command: string;
+}
+
+interface FocusTrayActivationPlan {
+  address: string;
+  kind: "focus";
+}
+
+interface LaunchTrayActivationPlan {
+  kind: "launch";
+  launchCommand: TrayCommandSpec;
+}
+
+type TrayActivationPlan = FocusTrayActivationPlan | LaunchTrayActivationPlan;
 
 const normalizeMatchValue = (value: string | null | undefined): string | null => {
   if (typeof value !== "string") {
@@ -53,12 +70,14 @@ const parseHyprlandClientsJson = (stdout: string): HyprlandClientRecord[] => {
     throw new TypeError("Expected `hyprctl clients -j` to return a JSON array.");
   }
 
-  return parsedValue.map((entry): HyprlandClientRecord => ({
+  return parsedValue.map(
+    (entry): HyprlandClientRecord => ({
       address: readOptionalString(entry, "address"),
       className: readOptionalString(entry, "class"),
       initialClassName: readOptionalString(entry, "initialClass"),
       title: readOptionalString(entry, "title"),
-    }));
+    }),
+  );
 };
 
 const findMatchingHyprlandClientAddress = (
@@ -110,13 +129,54 @@ const runRequiredCommand = async (
 const createOmarchyTerminalLaunchCommand = (
   target: TrayLaunchTarget,
   appId = trayTuiAppId,
-): {
-  args: string[];
-  command: string;
-} => ({
+): TrayCommandSpec => ({
   args: ["--", "xdg-terminal-exec", `--app-id=${appId}`, "-e", target.command, ...target.args],
   command: "uwsm-app",
 });
+
+const planTrayActivation = (
+  clients: HyprlandClientRecord[],
+  options: {
+    appId?: string;
+    launchTarget?: TrayLaunchTarget;
+  } = {},
+): TrayActivationPlan => {
+  const appId = options.appId ?? trayTuiAppId;
+  const launchTarget = options.launchTarget ?? createRepoLocalTuiLaunchTarget();
+  const matchingAddress = findMatchingHyprlandClientAddress(clients, appId);
+
+  if (matchingAddress !== null) {
+    return {
+      address: matchingAddress,
+      kind: "focus",
+    };
+  }
+
+  return {
+    kind: "launch",
+    launchCommand: createOmarchyTerminalLaunchCommand(launchTarget, appId),
+  };
+};
+
+const executeTrayActivationPlan = async (
+  host: TrayLauncherHost,
+  plan: TrayActivationPlan,
+): Promise<void> => {
+  if (plan.kind === "focus") {
+    await runRequiredCommand(host, "hyprctl", [
+      "dispatch",
+      "focuswindow",
+      `address:${plan.address}`,
+    ]);
+    return;
+  }
+
+  await ensureCommandAvailable(host, "uwsm-app");
+  await ensureCommandAvailable(host, "xdg-terminal-exec");
+  await ensureCommandAvailable(host, plan.launchCommand.command);
+
+  await host.spawnDetached(plan.launchCommand.command, plan.launchCommand.args);
+};
 
 const activateTrayTui = async (
   host: TrayLauncherHost,
@@ -131,33 +191,20 @@ const activateTrayTui = async (
   await ensureCommandAvailable(host, "hyprctl");
 
   const clientsResult = await runRequiredCommand(host, "hyprctl", ["clients", "-j"]);
-  const matchingAddress = findMatchingHyprlandClientAddress(
-    parseHyprlandClientsJson(clientsResult.stdout),
+  const plan = planTrayActivation(parseHyprlandClientsJson(clientsResult.stdout), {
     appId,
-  );
+    launchTarget,
+  });
 
-  if (matchingAddress !== null) {
-    await runRequiredCommand(host, "hyprctl", [
-      "dispatch",
-      "focuswindow",
-      `address:${matchingAddress}`,
-    ]);
-    return;
-  }
-
-  await ensureCommandAvailable(host, "uwsm-app");
-  await ensureCommandAvailable(host, "xdg-terminal-exec");
-  await ensureCommandAvailable(host, launchTarget.command);
-
-  const launchCommand = createOmarchyTerminalLaunchCommand(launchTarget, appId);
-  await host.spawnDetached(launchCommand.command, launchCommand.args);
+  await executeTrayActivationPlan(host, plan);
 };
 
 export {
   activateTrayTui,
   createOmarchyTerminalLaunchCommand,
-  findMatchingHyprlandClientAddress,
   parseHyprlandClientsJson,
+  planTrayActivation,
   type HyprlandClientRecord,
+  type TrayActivationPlan,
   type TrayLauncherHost,
 };
