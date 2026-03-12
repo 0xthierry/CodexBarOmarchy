@@ -237,47 +237,44 @@ const createPersistConfig = (configStore: ConfigStore, runtime: AppStoreRuntime)
   };
 };
 
-const createSelectProvider =
-  (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (providerId: ProviderId): Promise<AppStoreState> =>
-    persistConfig(setSelectedProvider(runtime.currentState.config, providerId));
+const createConfigMutation =
+  <Args extends unknown[]>(
+    persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
+    runtime: AppStoreRuntime,
+    updateConfig: (config: AppStoreConfig, ...args: Args) => AppStoreConfig,
+  ) =>
+  async (...args: Args): Promise<AppStoreState> =>
+    persistConfig(updateConfig(runtime.currentState.config, ...args));
 
-const createSetClaudeConfig =
-  (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (
-    updater: (
-      providerConfig: AppStoreConfig["providers"]["claude"],
-    ) => AppStoreConfig["providers"]["claude"],
-  ): Promise<AppStoreState> =>
-    persistConfig(setClaudeConfig(runtime.currentState.config, updater));
+const createSelectProvider = (
+  persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
+  runtime: AppStoreRuntime,
+) => createConfigMutation(persistConfig, runtime, setSelectedProvider);
 
-const createSetCodexConfig =
-  (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (
-    updater: (
-      providerConfig: AppStoreConfig["providers"]["codex"],
-    ) => AppStoreConfig["providers"]["codex"],
-  ): Promise<AppStoreState> =>
-    persistConfig(setCodexConfig(runtime.currentState.config, updater));
+const createSetClaudeConfig = (
+  persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
+  runtime: AppStoreRuntime,
+) => createConfigMutation(persistConfig, runtime, setClaudeConfig);
 
-const createSetGeminiConfig =
-  (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (
-    updater: (
-      providerConfig: AppStoreConfig["providers"]["gemini"],
-    ) => AppStoreConfig["providers"]["gemini"],
-  ): Promise<AppStoreState> =>
-    persistConfig(setGeminiConfig(runtime.currentState.config, updater));
+const createSetCodexConfig = (
+  persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
+  runtime: AppStoreRuntime,
+) => createConfigMutation(persistConfig, runtime, setCodexConfig);
 
-const createSetProviderEnabled =
-  (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (providerId: ProviderId, enabled: boolean): Promise<AppStoreState> =>
-    persistConfig(setProviderEnabled(runtime.currentState.config, providerId, enabled));
+const createSetGeminiConfig = (
+  persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
+  runtime: AppStoreRuntime,
+) => createConfigMutation(persistConfig, runtime, setGeminiConfig);
 
-const createSetProviderOrder =
-  (persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>, runtime: AppStoreRuntime) =>
-  async (providerOrder: ProviderId[]): Promise<AppStoreState> =>
-    persistConfig(setProviderOrder(runtime.currentState.config, providerOrder));
+const createSetProviderEnabled = (
+  persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
+  runtime: AppStoreRuntime,
+) => createConfigMutation(persistConfig, runtime, setProviderEnabled);
+
+const createSetProviderOrder = (
+  persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
+  runtime: AppStoreRuntime,
+) => createConfigMutation(persistConfig, runtime, setProviderOrder);
 
 const createActionView = <ActionValue extends ProviderActionName>(
   currentActionView: ProviderActionView<ActionValue>,
@@ -368,17 +365,17 @@ const applyActionResult = (
   actionResult: StoreActionResult,
 ): AppStoreState =>
   updateProviderRuntimeState(runtime, providerId, (providerRuntimeState) => ({
-      ...providerRuntimeState,
-      actions: {
-        ...providerRuntimeState.actions,
-        [actionResult.actionName]: createActionView(
-          providerRuntimeState.actions[actionResult.actionName],
-          actionResult.status,
-          actionResult.message,
-        ),
-      },
-      snapshot: resolveNextSnapshot(providerRuntimeState, actionResult),
-    }));
+    ...providerRuntimeState,
+    actions: {
+      ...providerRuntimeState.actions,
+      [actionResult.actionName]: createActionView(
+        providerRuntimeState.actions[actionResult.actionName],
+        actionResult.status,
+        actionResult.message,
+      ),
+    },
+    snapshot: resolveNextSnapshot(providerRuntimeState, actionResult),
+  }));
 
 const createProviderActionExecutor =
   <ActionName extends StoreNonRefreshActionName, ActionResult extends StoreNonRefreshActionResult>(
