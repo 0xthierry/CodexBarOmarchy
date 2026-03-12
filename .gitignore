@@ -4,3 +4,5 @@ node_modules
 dist
 coverage
 ai_docs
+session.md
+spec.md
