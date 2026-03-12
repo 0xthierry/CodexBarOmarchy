@@ -18,7 +18,7 @@ const trayIconPath = fileURLToPath(
 );
 const trayIdentitySuffixEnvVar = "OMARCHY_AGENT_BAR_ID_SUFFIX";
 
-const normalizeTrayIdentitySuffix = (value: string | undefined): string | null => {
+const normalizeTrayIdentitySuffix = (value?: string): string | null => {
   if (typeof value !== "string") {
     return null;
   }
