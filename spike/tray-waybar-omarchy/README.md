@@ -66,6 +66,55 @@ Primary path:
 2. on activation, run a launch-or-focus helper for a stable TUI app id
 3. render the actual application UX in the existing TUI
 
+Current spike artifacts in this folder:
+
+- `launch-or-focus-agent-stats.sh`
+  - proven locally to launch one TUI window with app id `org.omarchy.agent-stats`
+  - proven locally to focus that same window on repeated invocation instead of spawning duplicates
+- `tray-indicator.py`
+  - minimal Ayatana AppIndicator proof of concept using the system GTK/AppIndicator stack
+  - offers an `Open agent-stats` menu item wired to the launcher helper
+- `direct-status-notifier.py`
+  - direct `org.kde.StatusNotifierItem` proof of concept over D-Bus
+  - intended to test whether Waybar activation can map directly to TUI launch/focus without the AppIndicator menu abstraction
+- `agent-stats-tray.svg`
+  - minimal monochrome symbolic icon for tray testing
+
+## Results from the current spike
+
+### Launch/focus helper
+
+Verified locally:
+
+- launching via `launch-or-focus-agent-stats.sh` creates a single terminal window with class/app id `org.omarchy.agent-stats`
+- repeated invocation focuses the existing window instead of spawning duplicates
+
+### Ayatana AppIndicator path
+
+Verified locally:
+
+- registers a tray item with Waybar's `org.kde.StatusNotifierWatcher`
+- appears as an AppIndicator-style notification item on the bus
+
+Limitation:
+
+- this path exports a menu-oriented interface and does not expose `Activate`
+- it is therefore not the best fit for "left click should open or focus the TUI"
+
+### Direct StatusNotifierItem path
+
+Verified locally:
+
+- registers a real `StatusNotifierItem` directly with Waybar's watcher
+- exports `Activate`, `SecondaryActivate`, `ContextMenu`, and `Scroll`
+- calling `Activate` over D-Bus triggers the launch-or-focus helper
+- after activation, the active Hyprland window becomes `org.omarchy.agent-stats`
+
+Current conclusion:
+
+- the direct `StatusNotifierItem` approach is the strongest technical direction for Omarchy
+- the AppIndicator path is still useful as a compatibility reference, but not the preferred design for this app
+
 Fallback path:
 
 - document an optional Waybar `custom/...` module snippet for users who removed the tray from their Waybar config
