@@ -1,5 +1,5 @@
-import { createErrorProviderActionResult } from '@/core/actions/action-result.ts';
-import type { ProviderActionName } from '@/core/actions/action-result.ts';
+import { createErrorProviderActionResult } from "@/core/actions/action-result.ts";
+import type { ProviderActionName } from "@/core/actions/action-result.ts";
 import {
   createDefaultProviderAdapters,
   createRefreshActionResult,
@@ -9,11 +9,15 @@ import {
   dispatchRefreshAction,
   dispatchReloadTokenFileAction,
 } from "@/core/actions/provider-adapter.ts";
-import { initializeConfigWithDetection } from "@/core/detection/provider-detection.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
-import { createAppStoreRuntime, createStateSetter, updateSchedulerState } from '@/core/store/app-store-runtime.ts';
-import type { AppStoreRuntime, StoreListener } from '@/core/store/app-store-runtime.ts';
+import {
+  createConfigMutation,
+  createInitialize,
+  createPersistConfig,
+} from "@/core/store/app-store-config.ts";
 import { applyActionResult, markProviderActionRunning } from "@/core/store/app-store-actions.ts";
+import { createAppStoreRuntime, updateSchedulerState } from "@/core/store/app-store-runtime.ts";
+import type { AppStoreRuntime, StoreListener } from "@/core/store/app-store-runtime.ts";
 import {
   setClaudeConfig,
   setCodexConfig,
@@ -22,8 +26,8 @@ import {
   setProviderOrder,
   setSelectedProvider,
 } from "@/core/store/mutations.ts";
-import { defaultSchedulerState, getProviderView } from '@/core/store/state.ts';
-import type { createInitialAppStoreState } from '@/core/store/state.ts';
+import { defaultSchedulerState, getProviderView } from "@/core/store/state.ts";
+import type { createInitialAppStoreState } from "@/core/store/state.ts";
 import { normalizeRefreshSchedulerIntervalMs } from "@/core/store/scheduler.ts";
 
 type AppStoreState = ReturnType<typeof createInitialAppStoreState>;
@@ -96,72 +100,6 @@ interface CreateAppStoreOptions {
   configStore: ConfigStore;
   providerAdapters?: ProviderAdapters;
 }
-
-const createInitialize = (options: CreateAppStoreOptions, runtime: AppStoreRuntime) => {
-  const setCurrentConfig = createStateSetter(runtime);
-
-  return async (initializeOptions?: { forceRedetection?: boolean }): Promise<AppStoreState> => {
-    const initializationOptions: {
-      binaryLocator: BinaryLocator;
-      configStore: ConfigStore;
-      forceRedetection?: boolean;
-    } = {
-      binaryLocator: options.binaryLocator,
-      configStore: options.configStore,
-    };
-
-    if (initializeOptions?.forceRedetection === true) {
-      initializationOptions.forceRedetection = true;
-    }
-
-    const initializationResult = await initializeConfigWithDetection(initializationOptions);
-
-    return setCurrentConfig(initializationResult.config);
-  };
-};
-
-const createPersistConfig = (configStore: ConfigStore, runtime: AppStoreRuntime) => {
-  const setCurrentConfig = createStateSetter(runtime);
-
-  return async (config: AppStoreConfig): Promise<AppStoreState> => {
-    setCurrentConfig(config);
-    runtime.persistenceVersion += 1;
-
-    const { persistenceVersion } = runtime;
-    let resolvedState = runtime.currentState;
-    const previousPersistenceChain = runtime.persistenceChain;
-    const persistenceOperation = (async (): Promise<void> => {
-      await previousPersistenceChain;
-
-      const savedConfig = await configStore.save(config);
-
-      if (persistenceVersion === runtime.persistenceVersion) {
-        resolvedState = setCurrentConfig(savedConfig);
-      }
-    })();
-
-    runtime.persistenceChain = (async (): Promise<void> => {
-      try {
-        await persistenceOperation;
-      } catch {
-        await Promise.resolve();
-      }
-    })();
-
-    await persistenceOperation;
-
-    return resolvedState;
-  };
-};
-
-const createConfigMutation =
-  <Args extends unknown[]>(
-    persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
-    runtime: AppStoreRuntime,
-    updateConfig: (config: AppStoreConfig, ...args: Args) => AppStoreConfig,
-  ) =>
-  async (...args: Args): Promise<AppStoreState> =>
-    persistConfig(updateConfig(runtime.currentState.config, ...args));
 
 const createSelectProvider = (
   persistConfig: (config: AppStoreConfig) => Promise<AppStoreState>,
