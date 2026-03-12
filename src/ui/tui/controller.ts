@@ -5,6 +5,8 @@ import {
   closeClaudeTokenAccountEditor,
   deleteClaudeTokenAccountEditorText,
   openClaudeTokenAccountEditor,
+  readClaudeTokenAccountEditorSubmission,
+  resolveClaudeTokenAccountEditorKeyAction,
   setClaudeTokenAccountEditorError,
   switchClaudeTokenAccountEditorField,
 } from "@/ui/tui/token-account-editor.ts";
@@ -64,11 +66,6 @@ const createInitialLocalState = (): TuiLocalState => ({
 const isDigitShortcut = (key: TuiKeyInput): boolean => /^[1-9]$/.test(key.name);
 const isEnterKey = (key: TuiKeyInput): boolean => key.name === "enter" || key.name === "return";
 const isTabKey = (key: TuiKeyInput): boolean => key.name === "tab";
-const isBackspaceKey = (key: TuiKeyInput): boolean => key.name === "backspace";
-const isArrowKey = (key: TuiKeyInput): boolean =>
-  key.name === "down" || key.name === "left" || key.name === "right" || key.name === "up";
-const isPrintableKey = (key: TuiKeyInput): boolean =>
-  !key.ctrl && !key.meta && key.sequence.length === 1 && key.name !== "escape";
 const normalizeCodexSource = (value: string): "auto" | "cli" | "oauth" => {
   if (value === "cli" || value === "oauth") {
     return value;
@@ -562,17 +559,14 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
   };
 
   const submitTokenAccountEditor = async (): Promise<void> => {
-    if (localState.tokenAccountEditor === null) {
+    const submission = readClaudeTokenAccountEditorSubmission(localState);
+
+    if (submission === null) {
       return;
     }
 
-    const trimmedLabel = localState.tokenAccountEditor.label.trim();
-    const trimmedToken = localState.tokenAccountEditor.token.trim();
-
-    if (trimmedLabel === "" || trimmedToken === "") {
-      setLocalState(
-        setClaudeTokenAccountEditorError(localState, "Both label and token are required."),
-      );
+    if (!submission.ok) {
+      setLocalState(setClaudeTokenAccountEditorError(localState, submission.errorMessage));
       emit();
       return;
     }
@@ -585,52 +579,50 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
           tokenAccounts: [
             ...providerConfig.tokenAccounts,
             {
-              label: trimmedLabel,
-              token: trimmedToken,
+              label: submission.label,
+              token: submission.token,
             },
           ],
         })),
-      `Added Claude token account ${trimmedLabel}.`,
+      `Added Claude token account ${submission.label}.`,
     );
     setLocalState(closeClaudeTokenAccountEditor(localState));
     emit();
   };
 
   const handleEditorKeyPress = (key: TuiKeyInput): boolean => {
-    if (localState.tokenAccountEditor === null) {
+    const action = resolveClaudeTokenAccountEditorKeyAction(localState, key);
+
+    if (action === null) {
       return false;
     }
 
-    if (key.name === "escape") {
+    if (action.type === "cancel") {
       cancelTokenAccountEditor();
       return true;
     }
 
-    if (isTabKey(key)) {
+    if (action.type === "switchField") {
       switchTokenAccountEditorField();
       return true;
     }
 
-    if (isBackspaceKey(key)) {
+    if (action.type === "deleteText") {
       deleteTokenAccountEditorText();
       return true;
     }
 
-    if (isEnterKey(key)) {
-      if (localState.tokenAccountEditor.field === "label") {
-        switchTokenAccountEditorField();
-      } else {
-        void submitTokenAccountEditor();
-      }
+    if (action.type === "submit") {
+      void submitTokenAccountEditor();
       return true;
     }
 
-    if (isPrintableKey(key)) {
-      appendTokenAccountEditorText(key.sequence);
+    if (action.type === "appendText") {
+      appendTokenAccountEditorText(action.value);
       return true;
     }
 
-    if (isArrowKey(key)) {
+    if (action.type === "ignore") {
       return true;
     }
 

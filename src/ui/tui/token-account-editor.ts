@@ -1,4 +1,16 @@
-import type { TuiLocalState, TuiTokenAccountEditorState } from "@/ui/tui/types.ts";
+import type { TuiKeyInput, TuiLocalState, TuiTokenAccountEditorState } from "@/ui/tui/types.ts";
+
+type ClaudeTokenAccountEditorKeyAction =
+  | { type: "appendText"; value: string }
+  | { type: "cancel" }
+  | { type: "deleteText" }
+  | { type: "ignore" }
+  | { type: "submit" }
+  | { type: "switchField" };
+
+type ClaudeTokenAccountEditorSubmission =
+  | { errorMessage: string; ok: false }
+  | { label: string; ok: true; token: string };
 
 const createClaudeTokenAccountEditorState = (): TuiTokenAccountEditorState => ({
   errorMessage: null,
@@ -114,6 +126,72 @@ const setClaudeTokenAccountEditorError = (
   };
 };
 
+const resolveClaudeTokenAccountEditorKeyAction = (
+  localState: TuiLocalState,
+  key: TuiKeyInput,
+): ClaudeTokenAccountEditorKeyAction | null => {
+  if (localState.tokenAccountEditor === null) {
+    return null;
+  }
+
+  if (key.name === "escape") {
+    return { type: "cancel" };
+  }
+
+  if (key.name === "tab") {
+    return { type: "switchField" };
+  }
+
+  if (key.name === "backspace") {
+    return { type: "deleteText" };
+  }
+
+  if (key.name === "enter" || key.name === "return") {
+    if (localState.tokenAccountEditor.field === "label") {
+      return { type: "switchField" };
+    }
+
+    return { type: "submit" };
+  }
+
+  if (!key.ctrl && !key.meta && key.sequence.length === 1 && key.name !== "escape") {
+    return {
+      type: "appendText",
+      value: key.sequence,
+    };
+  }
+
+  if (key.name === "down" || key.name === "left" || key.name === "right" || key.name === "up") {
+    return { type: "ignore" };
+  }
+
+  return null;
+};
+
+const readClaudeTokenAccountEditorSubmission = (
+  localState: TuiLocalState,
+): ClaudeTokenAccountEditorSubmission | null => {
+  if (localState.tokenAccountEditor === null) {
+    return null;
+  }
+
+  const label = localState.tokenAccountEditor.label.trim();
+  const token = localState.tokenAccountEditor.token.trim();
+
+  if (label === "" || token === "") {
+    return {
+      errorMessage: "Both label and token are required.",
+      ok: false,
+    };
+  }
+
+  return {
+    label,
+    ok: true,
+    token,
+  };
+};
+
 export {
   appendClaudeTokenAccountEditorText,
   cancelClaudeTokenAccountEditor,
@@ -121,6 +199,9 @@ export {
   createClaudeTokenAccountEditorState,
   deleteClaudeTokenAccountEditorText,
   openClaudeTokenAccountEditor,
+  readClaudeTokenAccountEditorSubmission,
+  resolveClaudeTokenAccountEditorKeyAction,
   setClaudeTokenAccountEditorError,
   switchClaudeTokenAccountEditorField,
+  type ClaudeTokenAccountEditorKeyAction,
 };
