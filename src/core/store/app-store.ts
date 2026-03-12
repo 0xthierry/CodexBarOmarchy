@@ -16,8 +16,13 @@ import {
   createPersistConfig,
 } from "@/core/store/app-store-config.ts";
 import { applyActionResult, markProviderActionRunning } from "@/core/store/app-store-actions.ts";
-import { createAppStoreRuntime, updateSchedulerState } from "@/core/store/app-store-runtime.ts";
+import { createAppStoreRuntime } from "@/core/store/app-store-runtime.ts";
 import type { AppStoreRuntime, StoreListener } from "@/core/store/app-store-runtime.ts";
+import {
+  createRefreshEnabledProviders,
+  createStartRefreshScheduler,
+  createStopRefreshScheduler,
+} from "@/core/store/app-store-scheduler.ts";
 import {
   setClaudeConfig,
   setCodexConfig,
@@ -26,9 +31,8 @@ import {
   setProviderOrder,
   setSelectedProvider,
 } from "@/core/store/mutations.ts";
-import { defaultSchedulerState, getProviderView } from "@/core/store/state.ts";
+import { getProviderView } from "@/core/store/state.ts";
 import type { createInitialAppStoreState } from "@/core/store/state.ts";
-import { normalizeRefreshSchedulerIntervalMs } from "@/core/store/scheduler.ts";
 
 type AppStoreState = ReturnType<typeof createInitialAppStoreState>;
 type AppStoreConfig = AppStoreState["config"];
@@ -244,54 +248,6 @@ const createRepairProvider = (providerAdapters: ProviderAdapters, runtime: AppSt
   createProviderActionExecutor(runtime, "repair", (config, providerId) =>
     dispatchRecoveryAction(providerAdapters, config, providerId),
   );
-
-const createRefreshEnabledProviders =
-  (
-    refreshProvider: (providerId: ProviderId) => Promise<RefreshActionResult>,
-    runtime: AppStoreRuntime,
-  ) =>
-  async (): Promise<RefreshActionResult[]> =>
-    Promise.all(
-      runtime.currentState.enabledProviderIds.map((providerId) => refreshProvider(providerId)),
-    );
-
-const clearRefreshSchedulerHandle = (runtime: AppStoreRuntime): void => {
-  if (runtime.schedulerHandle === null) {
-    return;
-  }
-
-  globalThis.clearInterval(runtime.schedulerHandle);
-  runtime.schedulerHandle = explicitNull;
-};
-
-const setRefreshSchedulerHandle = (
-  runtime: AppStoreRuntime,
-  refreshEnabledProviders: () => Promise<RefreshActionResult[]>,
-  intervalMs: number,
-): void => {
-  clearRefreshSchedulerHandle(runtime);
-  runtime.schedulerHandle = globalThis.setInterval(() => {
-    void refreshEnabledProviders();
-  }, intervalMs);
-};
-
-const createStartRefreshScheduler =
-  (refreshEnabledProviders: () => Promise<RefreshActionResult[]>, runtime: AppStoreRuntime) =>
-  (intervalMs: number): AppStoreState => {
-    const normalizedIntervalMs = normalizeRefreshSchedulerIntervalMs(intervalMs);
-    setRefreshSchedulerHandle(runtime, refreshEnabledProviders, normalizedIntervalMs);
-
-    return updateSchedulerState(runtime, {
-      active: true,
-      intervalMs: normalizedIntervalMs,
-    });
-  };
-
-const createStopRefreshScheduler = (runtime: AppStoreRuntime) => (): AppStoreState => {
-  clearRefreshSchedulerHandle(runtime);
-
-  return updateSchedulerState(runtime, defaultSchedulerState);
-};
 
 const createAppStore = (options: CreateAppStoreOptions): AppStore => {
   const providerAdapters = options.providerAdapters ?? createDefaultProviderAdapters();
