@@ -63,6 +63,12 @@ type RefreshActionResult = Awaited<ReturnType<typeof dispatchRefreshAction>>;
 type ReloadTokenFileActionResult = Awaited<ReturnType<typeof dispatchReloadTokenFileAction>>;
 type SchedulerHandle = ReturnType<typeof globalThis.setInterval>;
 type StoreListener = (state: AppStoreState) => void;
+type StoreNonRefreshActionName = Exclude<ProviderActionName, "refresh">;
+type StoreNonRefreshActionResult =
+  | LoginActionResult
+  | OpenTokenFileActionResult
+  | RecoveryActionResult
+  | ReloadTokenFileActionResult;
 
 interface AppStore {
   getProviderView: (providerId: ProviderId) => ProviderView;
@@ -373,35 +379,38 @@ const applyActionResult = (
     };
   });
 
-const createLoginProvider =
-  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
-  async (providerId: ProviderId): Promise<LoginActionResult> => {
-    markProviderActionRunning(runtime, providerId, "login");
-    const actionResult = await dispatchLoginAction(
-      providerAdapters,
-      runtime.currentState.config,
-      providerId,
-    );
+const createProviderActionExecutor =
+  <ActionName extends StoreNonRefreshActionName, ActionResult extends StoreNonRefreshActionResult>(
+    runtime: AppStoreRuntime,
+    actionName: ActionName,
+    dispatchAction: (config: AppStoreConfig, providerId: ProviderId) => Promise<ActionResult>,
+  ) =>
+  async (providerId: ProviderId): Promise<ActionResult> => {
+    markProviderActionRunning(runtime, providerId, actionName);
+    const actionResult = await dispatchAction(runtime.currentState.config, providerId);
 
     applyActionResult(runtime, providerId, actionResult);
 
     return actionResult;
   };
 
-const createOpenClaudeTokenFile =
-  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
-  async (): Promise<OpenTokenFileActionResult> => {
-    markProviderActionRunning(runtime, "claude", "openTokenFile");
-    const actionResult = await dispatchOpenTokenFileAction(
-      providerAdapters,
-      runtime.currentState.config,
-      "claude",
-    );
+const createLoginProvider = (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
+  createProviderActionExecutor(runtime, "login", (config, providerId) =>
+    dispatchLoginAction(providerAdapters, config, providerId),
+  );
 
-    applyActionResult(runtime, "claude", actionResult);
+const createOpenClaudeTokenFile = (
+  providerAdapters: ProviderAdapters,
+  runtime: AppStoreRuntime,
+) => {
+  const executeOpenTokenFile = createProviderActionExecutor(
+    runtime,
+    "openTokenFile",
+    (config, providerId) => dispatchOpenTokenFileAction(providerAdapters, config, providerId),
+  );
 
-    return actionResult;
-  };
+  return (): Promise<OpenTokenFileActionResult> => executeOpenTokenFile("claude");
+};
 
 const createRefreshProvider =
   (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
@@ -452,35 +461,23 @@ const createRefreshProvider =
     return refreshOperation;
   };
 
-const createReloadClaudeTokenFile =
-  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
-  async (): Promise<ReloadTokenFileActionResult> => {
-    markProviderActionRunning(runtime, "claude", "reloadTokenFile");
-    const actionResult = await dispatchReloadTokenFileAction(
-      providerAdapters,
-      runtime.currentState.config,
-      "claude",
-    );
+const createReloadClaudeTokenFile = (
+  providerAdapters: ProviderAdapters,
+  runtime: AppStoreRuntime,
+) => {
+  const executeReloadTokenFile = createProviderActionExecutor(
+    runtime,
+    "reloadTokenFile",
+    (config, providerId) => dispatchReloadTokenFileAction(providerAdapters, config, providerId),
+  );
 
-    applyActionResult(runtime, "claude", actionResult);
+  return (): Promise<ReloadTokenFileActionResult> => executeReloadTokenFile("claude");
+};
 
-    return actionResult;
-  };
-
-const createRepairProvider =
-  (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
-  async (providerId: ProviderId): Promise<RecoveryActionResult> => {
-    markProviderActionRunning(runtime, providerId, "repair");
-    const actionResult = await dispatchRecoveryAction(
-      providerAdapters,
-      runtime.currentState.config,
-      providerId,
-    );
-
-    applyActionResult(runtime, providerId, actionResult);
-
-    return actionResult;
-  };
+const createRepairProvider = (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
+  createProviderActionExecutor(runtime, "repair", (config, providerId) =>
+    dispatchRecoveryAction(providerAdapters, config, providerId),
+  );
 
 const createRefreshEnabledProviders =
   (
