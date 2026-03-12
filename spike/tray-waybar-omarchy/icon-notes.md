@@ -76,3 +76,16 @@ For the spike, the best identity direction looks like:
 - not dependent on one provider, since this app spans Codex, Claude, and Gemini
 
 That is safer than reusing the local `ChatGPT.png` directly.
+
+## Current spike choice
+
+The spike now uses Tabler's `bot-id` icon as the tray SVG source:
+
+- icon page: `https://tabler.io/icons/icon/bot-id`
+- icon set/license page: `https://tabler.io/icons`
+
+Why this one:
+
+- explicit robot/agent metaphor
+- outline style fits Omarchy's small monochrome bar language better than most filled icons
+- MIT license is straightforward for an open-source repository
