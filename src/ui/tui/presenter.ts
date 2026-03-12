@@ -1,6 +1,7 @@
 import { findCurrentChoiceLabel, getSettingsItems } from "@/ui/tui/descriptors.ts";
 import type { ProviderCostSnapshot } from "@/core/store/runtime-state.ts";
 import type { ProviderMetricKind } from "@/core/store/runtime-state.ts";
+import type { TokenCostSnapshot } from "@/core/store/runtime-state.ts";
 import type {
   ProviderId,
   ProviderView,
@@ -406,6 +407,32 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
     return [];
   }
 
+  const createTokenCostDetailLines = (tokenCost: TokenCostSnapshot | null): string[] => {
+    if (tokenCost === null) {
+      return [];
+    }
+
+    const lines = ["", "Cost:"];
+
+    if (tokenCost.today !== null) {
+      lines.push(
+        tokenCost.today.costUsd === null
+          ? "Estimated token cost today: unavailable"
+          : `Estimated token cost today: USD ${formatDecimalAmount(tokenCost.today.costUsd)}`,
+      );
+    }
+
+    if (tokenCost.last30Days !== null) {
+      lines.push(
+        tokenCost.last30Days.costUsd === null
+          ? "Estimated token cost 30d: unavailable"
+          : `Estimated token cost 30d: USD ${formatDecimalAmount(tokenCost.last30Days.costUsd)}`,
+      );
+    }
+
+    return lines;
+  };
+
   if (providerDetails.kind === "codex") {
     const lines: string[] = [];
 
@@ -437,53 +464,13 @@ const createProviderDetailUsageLines = (providerView: ProviderView): string[] =>
       }
     }
 
-    if (providerDetails.tokenCost !== null) {
-      lines.push("", "Cost:");
-
-      if (providerDetails.tokenCost.today !== null) {
-        lines.push(
-          providerDetails.tokenCost.today.costUsd === null
-            ? "Estimated token cost today: unavailable"
-            : `Estimated token cost today: USD ${formatDecimalAmount(providerDetails.tokenCost.today.costUsd)}`,
-        );
-      }
-
-      if (providerDetails.tokenCost.last30Days !== null) {
-        lines.push(
-          providerDetails.tokenCost.last30Days.costUsd === null
-            ? "Estimated token cost 30d: unavailable"
-            : `Estimated token cost 30d: USD ${formatDecimalAmount(providerDetails.tokenCost.last30Days.costUsd)}`,
-        );
-      }
-    }
+    lines.push(...createTokenCostDetailLines(providerDetails.tokenCost));
 
     return lines;
   }
 
   if (providerDetails.kind === "claude") {
-    const lines: string[] = [];
-
-    if (providerDetails.tokenCost !== null) {
-      lines.push("", "Cost:");
-
-      if (providerDetails.tokenCost.today !== null) {
-        lines.push(
-          providerDetails.tokenCost.today.costUsd === null
-            ? "Estimated token cost today: unavailable"
-            : `Estimated token cost today: USD ${formatDecimalAmount(providerDetails.tokenCost.today.costUsd)}`,
-        );
-      }
-
-      if (providerDetails.tokenCost.last30Days !== null) {
-        lines.push(
-          providerDetails.tokenCost.last30Days.costUsd === null
-            ? "Estimated token cost 30d: unavailable"
-            : `Estimated token cost 30d: USD ${formatDecimalAmount(providerDetails.tokenCost.last30Days.costUsd)}`,
-        );
-      }
-    }
-
-    return lines;
+    return createTokenCostDetailLines(providerDetails.tokenCost);
   }
 
   const lines: string[] = [];
