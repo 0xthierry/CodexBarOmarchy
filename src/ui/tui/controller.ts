@@ -1,4 +1,5 @@
 import { getSettingsItems } from "@/ui/tui/descriptors.ts";
+import { resolveTuiControllerKeyAction } from "@/ui/tui/key-routing.ts";
 import {
   appendClaudeTokenAccountEditorText,
   cancelClaudeTokenAccountEditor,
@@ -63,9 +64,6 @@ const createInitialLocalState = (): TuiLocalState => ({
   tokenAccountEditor: null,
 });
 
-const isDigitShortcut = (key: TuiKeyInput): boolean => /^[1-9]$/.test(key.name);
-const isEnterKey = (key: TuiKeyInput): boolean => key.name === "enter" || key.name === "return";
-const isTabKey = (key: TuiKeyInput): boolean => key.name === "tab";
 const normalizeCodexSource = (value: string): "auto" | "cli" | "oauth" => {
   if (value === "cli" || value === "oauth") {
     return value;
@@ -629,110 +627,75 @@ const createTuiController = (options: CreateTuiControllerOptions): TuiController
     return false;
   };
 
-  const handleSettingsModalKeyPress = (key: TuiKeyInput): boolean => {
-    if (!localState.isSettingsOpen) {
-      return false;
-    }
-
-    if (
-      isDigitShortcut(key) ||
-      key.name === "h" ||
-      key.name === "l" ||
-      key.name === "left" ||
-      key.name === "right"
-    ) {
-      return true;
-    }
-
-    if (key.name === "escape") {
-      closeSettings();
-      return true;
-    }
-
-    if (isTabKey(key)) {
-      if (localState.modalFocus === "choices") {
-        focusModalItems();
-      } else {
-        focusModalChoices();
-      }
-
-      return true;
-    }
-
-    if (isEnterKey(key)) {
-      if (localState.modalFocus === "choices") {
-        void applySelectedChoice();
-      } else {
-        void activateSelectedSettingsItem();
-      }
-
-      return true;
-    }
-
-    if (key.name === "space") {
-      void activateSelectedSettingsItem();
-      return true;
-    }
-
-    return false;
-  };
-
-  const handleProviderNavigationKeyPress = (key: TuiKeyInput): boolean => {
-    if (key.name === "h" || key.name === "left") {
-      void selectProviderByOffset(-1);
-      return true;
-    }
-
-    if (key.name === "l" || key.name === "right") {
-      void selectProviderByOffset(1);
-      return true;
-    }
-
-    if (!isDigitShortcut(key)) {
-      return false;
-    }
-
-    const providerIndex = Number(key.name) - 1;
-    const providerId = options.appStore.getState().providerViews[providerIndex]?.id;
-
-    if (providerId === undefined) {
-      return false;
-    }
-
-    void selectProvider(providerId);
-    return true;
-  };
-
   const handleKeyPress = (key: TuiKeyInput): boolean => {
-    if (key.ctrl && key.name === "c") {
-      requestQuit();
-      return true;
-    }
-
     if (handleEditorKeyPress(key)) {
       return true;
     }
+    const action = resolveTuiControllerKeyAction({
+      key,
+      localState,
+      providerViews: getState().providerViews,
+    });
 
-    if (key.name === "q") {
+    if (action === null) {
+      return false;
+    }
+
+    if (action.type === "requestQuit") {
       requestQuit();
       return true;
     }
 
-    if (key.name === "r") {
+    if (action.type === "refreshSelectedProvider") {
       void refreshSelectedProvider();
       return true;
     }
 
-    if (key.name === ",") {
+    if (action.type === "openSettings") {
       openSettings();
       return true;
     }
 
-    if (handleSettingsModalKeyPress(key)) {
+    if (action.type === "closeSettings") {
+      closeSettings();
       return true;
     }
 
-    return handleProviderNavigationKeyPress(key);
+    if (action.type === "focusModalItems") {
+      focusModalItems();
+      return true;
+    }
+
+    if (action.type === "focusModalChoices") {
+      focusModalChoices();
+      return true;
+    }
+
+    if (action.type === "activateSelectedSettingsItem") {
+      void activateSelectedSettingsItem();
+      return true;
+    }
+
+    if (action.type === "applySelectedChoice") {
+      void applySelectedChoice();
+      return true;
+    }
+
+    if (action.type === "selectProviderByOffset") {
+      void selectProviderByOffset(action.offset);
+      return true;
+    }
+
+    if (action.type === "selectProvider") {
+      void selectProvider(action.providerId);
+      return true;
+    }
+
+    if (action.type === "suppressNavigation") {
+      return true;
+    }
+
+    return false;
   };
 
   const unsubscribeFromStore = options.appStore.subscribe(() => {
