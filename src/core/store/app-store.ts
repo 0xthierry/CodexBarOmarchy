@@ -392,6 +392,38 @@ const createProviderActionExecutor =
     return actionResult;
   };
 
+const setRefreshOperation = (
+  runtime: AppStoreRuntime,
+  providerId: ProviderId,
+  refreshOperation: Promise<RefreshActionResult> | null,
+): void => {
+  runtime.refreshOperations = {
+    ...runtime.refreshOperations,
+    [providerId]: refreshOperation,
+  };
+};
+
+const createRefreshFailureResult = (providerId: ProviderId, error: unknown): RefreshActionResult =>
+  createRefreshActionResult(
+    createErrorProviderActionResult(
+      providerId,
+      "refresh",
+      error instanceof Error ? error.message : `${providerId} refresh failed.`,
+    ),
+  );
+
+const dispatchRefreshActionSafely = async (
+  providerAdapters: ProviderAdapters,
+  config: AppStoreConfig,
+  providerId: ProviderId,
+): Promise<RefreshActionResult> => {
+  try {
+    return await dispatchRefreshAction(providerAdapters, config, providerId);
+  } catch (error) {
+    return createRefreshFailureResult(providerId, error);
+  }
+};
+
 const createLoginProvider = (providerAdapters: ProviderAdapters, runtime: AppStoreRuntime) =>
   createProviderActionExecutor(runtime, "login", (config, providerId) =>
     dispatchLoginAction(providerAdapters, config, providerId),
@@ -422,39 +454,21 @@ const createRefreshProvider =
     markProviderActionRunning(runtime, providerId, "refresh");
     const refreshOperation = (async (): Promise<RefreshActionResult> => {
       try {
-        const actionResult = await (async (): Promise<RefreshActionResult> => {
-          try {
-            return await dispatchRefreshAction(
-              providerAdapters,
-              runtime.currentState.config,
-              providerId,
-            );
-          } catch (error) {
-            return createRefreshActionResult(
-              createErrorProviderActionResult(
-                providerId,
-                "refresh",
-                error instanceof Error ? error.message : `${providerId} refresh failed.`,
-              ),
-            );
-          }
-        })();
+        const actionResult = await dispatchRefreshActionSafely(
+          providerAdapters,
+          runtime.currentState.config,
+          providerId,
+        );
 
         applyActionResult(runtime, providerId, actionResult);
 
         return actionResult;
       } finally {
-        runtime.refreshOperations = {
-          ...runtime.refreshOperations,
-          [providerId]: explicitNull,
-        };
+        setRefreshOperation(runtime, providerId, explicitNull);
       }
     })();
 
-    runtime.refreshOperations = {
-      ...runtime.refreshOperations,
-      [providerId]: refreshOperation,
-    };
+    setRefreshOperation(runtime, providerId, refreshOperation);
 
     return refreshOperation;
   };
