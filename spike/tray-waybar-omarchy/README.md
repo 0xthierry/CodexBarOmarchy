@@ -77,6 +77,9 @@ Current spike artifacts in this folder:
 - `direct-status-notifier.py`
   - direct `org.kde.StatusNotifierItem` proof of concept over D-Bus
   - intended to test whether Waybar activation can map directly to TUI launch/focus without the AppIndicator menu abstraction
+- `direct-status-notifier.ts`
+  - Bun/TypeScript version of the direct `StatusNotifierItem` spike using `dbus-next`
+  - intended to verify that production implementation does not need a Python helper
 - `agent-stats-tray.svg`
   - minimal monochrome symbolic icon for tray testing
 
@@ -114,6 +117,24 @@ Current conclusion:
 
 - the direct `StatusNotifierItem` approach is the strongest technical direction for Omarchy
 - the AppIndicator path is still useful as a compatibility reference, but not the preferred design for this app
+
+### Bun / TypeScript result
+
+Verified locally:
+
+- `dbus-next` can own a session bus name under Bun on this machine
+- a Bun/TypeScript service can export `/StatusNotifierItem`
+- the Bun/TypeScript notifier registers with Waybar's watcher as `org.omarchy.AgentStatsTraySpikeTs/StatusNotifierItem`
+- calling `Activate` on the Bun/TypeScript notifier focuses or launches the TUI through the same launcher helper
+
+Important implementation note:
+
+- with `dbus-next`, watcher registration worked when passing the well-known bus name to `RegisterStatusNotifierItem`, not the object path
+
+Current conclusion:
+
+- this tray integration can be implemented in TypeScript
+- a Python helper is not required for the core tray-to-TUI path
 
 Fallback path:
 
