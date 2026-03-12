@@ -200,6 +200,7 @@ const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMe
   ) {
     metrics.push({
       detail: usageRecord.fiveHour.resetsAt,
+      kind: "session",
       label: "Session",
       value: formatPercent(usageRecord.fiveHour.utilization),
     });
@@ -211,6 +212,7 @@ const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMe
   ) {
     metrics.push({
       detail: usageRecord.sevenDay.resetsAt,
+      kind: "weekly",
       label: "Weekly",
       value: formatPercent(usageRecord.sevenDay.utilization),
     });
@@ -222,6 +224,7 @@ const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMe
   ) {
     metrics.push({
       detail: usageRecord.sevenDaySonnet.resetsAt,
+      kind: "sonnet",
       label: "Sonnet",
       value: formatPercent(usageRecord.sevenDaySonnet.utilization),
     });
@@ -612,15 +615,15 @@ const parseClaudeCliSnapshot = (
   const sonnetPercent = sonnetMatch?.[1];
 
   if (typeof sessionPercent === "string") {
-    metrics.push({ label: "Session", value: `${sessionPercent}%` });
+    metrics.push({ kind: "session", label: "Session", value: `${sessionPercent}%` });
   }
 
   if (typeof weeklyPercent === "string") {
-    metrics.push({ label: "Weekly", value: `${weeklyPercent}%` });
+    metrics.push({ kind: "weekly", label: "Weekly", value: `${weeklyPercent}%` });
   }
 
   if (typeof sonnetPercent === "string") {
-    metrics.push({ label: "Sonnet", value: `${sonnetPercent}%` });
+    metrics.push({ kind: "sonnet", label: "Sonnet", value: `${sonnetPercent}%` });
   }
 
   if (metrics.length === 0) {

@@ -1,5 +1,6 @@
 import { findCurrentChoiceLabel, getSettingsItems } from "@/ui/tui/descriptors.ts";
 import type { ProviderCostSnapshot } from "@/core/store/runtime-state.ts";
+import type { ProviderMetricKind } from "@/core/store/runtime-state.ts";
 import type {
   ProviderId,
   ProviderView,
@@ -202,7 +203,45 @@ const getProviderCostPercent = (value: ProviderCostSnapshot): number | null => {
 
 const invertRemainingPercent = (value: number): number => Math.max(0, 100 - value);
 
-const describeMetric = (label: string, detail: string | null): string | null => {
+const inferMetricKind = (metric: {
+  kind?: ProviderMetricKind;
+  label: string;
+}): ProviderMetricKind => {
+  if (metric.kind !== undefined) {
+    return metric.kind;
+  }
+
+  if (metric.label === "Session") {
+    return "session";
+  }
+
+  if (metric.label === "Weekly") {
+    return "weekly";
+  }
+
+  if (metric.label === "Sonnet") {
+    return "sonnet";
+  }
+
+  if (metric.label === "Pro") {
+    return "pro";
+  }
+
+  if (metric.label === "Flash") {
+    return "flash";
+  }
+
+  if (metric.label === "Credits") {
+    return "credits";
+  }
+
+  return "custom";
+};
+
+const describeMetric = (
+  metric: { kind?: ProviderMetricKind; label: string },
+  detail: string | null,
+): string | null => {
   if (typeof detail === "string" && detail.trim() !== "") {
     const parsed = parseIsoDate(detail);
 
@@ -219,23 +258,25 @@ const describeMetric = (label: string, detail: string | null): string | null => 
     return detail;
   }
 
-  if (label === "Session") {
+  const metricKind = inferMetricKind(metric);
+
+  if (metricKind === "session") {
     return "Current session window";
   }
 
-  if (label === "Weekly") {
+  if (metricKind === "weekly") {
     return "Current weekly window";
   }
 
-  if (label === "Credits") {
+  if (metricKind === "credits") {
     return "OpenAI credit balance";
   }
 
-  if (label === "Sonnet") {
+  if (metricKind === "sonnet") {
     return "Current Sonnet window";
   }
 
-  if (label === "Flash" || label === "Pro") {
+  if (metricKind === "flash" || metricKind === "pro") {
     return "Current Gemini quota window";
   }
 
@@ -321,7 +362,7 @@ const getOrderedUsageMetrics = (
     value: string;
   }[] = [];
   const { usage } = providerView.status;
-  const providerDetails = providerView.status.providerDetails;
+  const {providerDetails} = providerView.status;
 
   if (usage.windows.session !== null) {
     metrics.push(usage.windows.session);
@@ -352,7 +393,7 @@ const getOrderedUsageMetrics = (
   metrics.push(...usage.additional);
 
   if (isCodexProvider) {
-    const dashboard = providerDetails.dashboard;
+    const {dashboard} = providerDetails;
 
     for (const rateLimit of dashboard?.additionalRateLimits ?? []) {
       if (rateLimit.remainingPercent === null) {
@@ -502,14 +543,14 @@ const createUsageLines = (providerView: ProviderView): string[] => {
 
   const lines = displayMetrics.flatMap((metric, metricIndex) => {
     const previousMetric = metricIndex === 0 ? null : (displayMetrics[metricIndex - 1] ?? null);
-    const detail = describeMetric(metric.label, metric.detail);
+    const detail = describeMetric(metric, metric.detail);
     const ratioMatch = /^(\d+)(?:\.\d+)?%$/.exec(metric.value.trim());
     const ratio =
       metric.meterPercent !== undefined
         ? Math.max(0, Math.min(100, metric.meterPercent))
-        : ratioMatch === null
+        : (ratioMatch === null
           ? null
-          : Math.max(0, Math.min(100, Number(ratioMatch[1])));
+          : Math.max(0, Math.min(100, Number(ratioMatch[1]))));
     const filledCount = ratio === null ? 0 : Math.round((ratio / 100) * 16);
     const meter = ratio === null ? "" : `${"█".repeat(filledCount)}${"░".repeat(16 - filledCount)}`;
     const includeSeparator = metricIndex !== displayMetrics.length - 1 && meter !== "";
@@ -517,8 +558,7 @@ const createUsageLines = (providerView: ProviderView): string[] => {
       previousMetric !== null &&
       (previousMetric.meterPercent !== undefined ||
         /^(\d+)(?:\.\d+)?%$/.test(previousMetric.value.trim()));
-    const prefixLines =
-      metric.sectionBreakBefore === true && !previousMetricHasMeter ? [""] : [];
+    const prefixLines = metric.sectionBreakBefore === true && !previousMetricHasMeter ? [""] : [];
     const metricLine =
       metric.label.length >= 12
         ? `${metric.label} ${metric.value}`

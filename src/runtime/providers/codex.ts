@@ -429,6 +429,7 @@ const parseCodexOAuthSnapshot = (
   if (primaryPercent !== null) {
     metrics.push({
       detail: readString(primaryWindow ?? usageResponse.rateLimit ?? {}, "reset_at"),
+      kind: "session",
       label: "Session",
       value: formatPercent(primaryPercent),
     });
@@ -437,6 +438,7 @@ const parseCodexOAuthSnapshot = (
   if (secondaryPercent !== null) {
     metrics.push({
       detail: readString(secondaryWindow ?? usageResponse.rateLimit ?? {}, "reset_at"),
+      kind: "weekly",
       label: "Weekly",
       value: formatPercent(secondaryPercent),
     });
@@ -444,6 +446,7 @@ const parseCodexOAuthSnapshot = (
 
   if (creditBalance !== null) {
     metrics.push({
+      kind: "credits",
       label: "Credits",
       value: creditBalance.toFixed(2),
     });
@@ -694,6 +697,7 @@ const parseCodexCliSnapshot = (
   if (typeof primaryPercent === "number") {
     metrics.push({
       detail: formatResetAt(rateLimits?.primary?.resetsAt),
+      kind: "session",
       label: "Session",
       value: formatPercent(primaryPercent),
     });
@@ -702,6 +706,7 @@ const parseCodexCliSnapshot = (
   if (typeof secondaryPercent === "number") {
     metrics.push({
       detail: formatResetAt(rateLimits?.secondary?.resetsAt),
+      kind: "weekly",
       label: "Weekly",
       value: formatPercent(secondaryPercent),
     });
@@ -709,6 +714,7 @@ const parseCodexCliSnapshot = (
 
   if (Number.isFinite(creditBalance)) {
     metrics.push({
+      kind: "credits",
       label: "Credits",
       value: String(creditBalance),
     });

@@ -367,16 +367,19 @@ test("codex refreshes against the real usage API contract", async () => {
   expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "soon",
+      kind: "session",
       label: "Session",
       value: "42%",
     },
     {
       detail: "later",
+      kind: "weekly",
       label: "Weekly",
       value: "75%",
     },
     {
       detail: explicitNull,
+      kind: "credits",
       label: "Credits",
       value: "10.50",
     },
@@ -627,6 +630,7 @@ test("codex uses the cached access token before attempting stale-token refresh m
   expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "soon",
+      kind: "session",
       label: "Session",
       value: "42%",
     },
@@ -915,16 +919,19 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
   expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "soon",
+      kind: "session",
       label: "Session",
       value: "33%",
     },
     {
       detail: "later",
+      kind: "weekly",
       label: "Weekly",
       value: "61%",
     },
     {
       detail: "later",
+      kind: "sonnet",
       label: "Sonnet",
       value: "47%",
     },
@@ -1815,11 +1822,13 @@ test("gemini refreshes oauth credentials and fetches live quota data through the
   expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
       detail: "tomorrow",
+      kind: "pro",
       label: "Pro",
       value: "28%",
     },
     {
       detail: "later",
+      kind: "flash",
       label: "Flash",
       value: "59%",
     },

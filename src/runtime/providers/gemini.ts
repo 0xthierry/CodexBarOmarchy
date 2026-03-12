@@ -420,6 +420,7 @@ const parseGeminiQuotaSnapshot = (
 
   const metrics = [...metricsByLabel.entries()].map(([label, metric]) => ({
     detail: metric.detail,
+    kind: label === "Pro" ? "pro" : "flash",
     label,
     value: formatFractionPercent(metric.value),
   }));

@@ -8,6 +8,7 @@ import { explicitNull } from "@/core/providers/shared.ts";
 import type {
   ProviderCostSnapshot,
   ProviderDetailsSnapshot,
+  ProviderMetricKind,
   ProviderMetricView,
   ProviderQuotaBucketSnapshot,
   ProviderRateWindowSnapshot,
@@ -33,6 +34,7 @@ interface JsonFileReadOkResult {
 
 interface ProviderMetricInput {
   detail?: string | null;
+  kind?: ProviderMetricKind;
   label: string;
   value: string;
 }
@@ -164,8 +166,37 @@ const readFiniteNumber = (record: Record<string, unknown>, key: string): number 
 const formatPercent = (value: number): string => `${Math.round(value)}%`;
 const formatFractionPercent = (value: number): string => formatPercent(value * 100);
 
+const inferProviderMetricKind = (label: string): ProviderMetricKind => {
+  if (label === "Session") {
+    return "session";
+  }
+
+  if (label === "Weekly") {
+    return "weekly";
+  }
+
+  if (label === "Sonnet") {
+    return "sonnet";
+  }
+
+  if (label === "Pro") {
+    return "pro";
+  }
+
+  if (label === "Flash") {
+    return "flash";
+  }
+
+  if (label === "Credits") {
+    return "credits";
+  }
+
+  return "custom";
+};
+
 const createMetric = (input: ProviderMetricInput): ProviderMetricView => ({
   detail: input.detail ?? explicitNull,
+  kind: input.kind ?? inferProviderMetricKind(input.label),
   label: input.label,
   value: input.value,
 });
@@ -244,7 +275,7 @@ const createUsageSnapshot = (
     const metric = createMetric(metricInput);
     const usedPercent = parsePercentValue(metric.value);
 
-    if (metric.label === "Session") {
+    if (metric.kind === "session") {
       usage.windows.session = metric;
 
       if (usedPercent !== null) {
@@ -260,7 +291,7 @@ const createUsageSnapshot = (
       continue;
     }
 
-    if (metric.label === "Weekly") {
+    if (metric.kind === "weekly") {
       usage.windows.weekly = metric;
 
       if (usedPercent !== null) {
@@ -276,7 +307,7 @@ const createUsageSnapshot = (
       continue;
     }
 
-    if (metric.label === "Sonnet") {
+    if (metric.kind === "sonnet") {
       usage.windows.sonnet = metric;
 
       if (usedPercent !== null) {
@@ -292,7 +323,7 @@ const createUsageSnapshot = (
       continue;
     }
 
-    if (metric.label === "Pro") {
+    if (metric.kind === "pro") {
       usage.windows.pro = metric;
 
       if (usedPercent !== null) {
@@ -308,7 +339,7 @@ const createUsageSnapshot = (
       continue;
     }
 
-    if (metric.label === "Flash") {
+    if (metric.kind === "flash") {
       usage.windows.flash = metric;
 
       if (usedPercent !== null) {
@@ -324,7 +355,7 @@ const createUsageSnapshot = (
       continue;
     }
 
-    if (metric.label === "Credits") {
+    if (metric.kind === "credits") {
       usage.balances.credits = metric;
       continue;
     }

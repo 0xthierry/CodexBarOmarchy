@@ -6,9 +6,19 @@ import type { ProviderMap } from "@/core/providers/shared.ts";
 
 const providerRuntimeStatuses = ["idle", "refreshing", "ready", "error"] as const;
 const providerViewActionStatuses = ["idle", "running", "success", "error", "unsupported"] as const;
+const providerMetricKinds = [
+  "session",
+  "weekly",
+  "sonnet",
+  "pro",
+  "flash",
+  "credits",
+  "custom",
+] as const;
 
 type ProviderRuntimeStatus = (typeof providerRuntimeStatuses)[number];
 type ProviderViewActionStatus = (typeof providerViewActionStatuses)[number];
+type ProviderMetricKind = (typeof providerMetricKinds)[number];
 const providerServiceStatusIndicators = [
   "none",
   "maintenance",
@@ -22,6 +32,7 @@ type ProviderServiceStatusIndicator = (typeof providerServiceStatusIndicators)[n
 
 interface ProviderMetricView {
   detail: string | null;
+  kind?: ProviderMetricKind;
   label: string;
   value: string;
 }
@@ -316,6 +327,7 @@ export {
   getProviderSnapshotMetrics,
   isProviderActionSupported,
   providerActionNames,
+  providerMetricKinds,
   providerRuntimeStatuses,
   providerServiceStatusIndicators,
   providerViewActionStatuses,
@@ -325,6 +337,7 @@ export {
   type ProviderCostSnapshot,
   type ProviderIncidentSnapshot,
   type ProviderIdentitySnapshot,
+  type ProviderMetricKind,
   type ProviderMetricView,
   type ProviderQuotaBucketSnapshot,
   type ProviderRateWindowSnapshot,
