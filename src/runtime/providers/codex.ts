@@ -9,8 +9,24 @@ import type { RuntimeCommandLineSession, RuntimeHost } from "@/runtime/host.ts";
 import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
 import { resolveCodexWebSession } from "@/runtime/providers/codex-web-auth.ts";
 import { fetchCodexWhamDashboard } from "@/runtime/providers/codex-web-wham.ts";
-import { createRefreshError, createRefreshSuccess, createSnapshot, formatPercent, isRecord, joinPath, parseJsonText, readFiniteNumber, readJsonFile, readJwtEmail, readNestedRecord, readString, runResolvedRefresh, withProviderDetails, writeJsonFile } from '@/runtime/providers/shared.ts';
-import type { ProviderMetricInput } from '@/runtime/providers/shared.ts';
+import {
+  createRefreshError,
+  createRefreshSuccess,
+  createSnapshot,
+  formatPercent,
+  isRecord,
+  joinPath,
+  parseJsonText,
+  readFiniteNumber,
+  readJsonFile,
+  readJwtEmail,
+  readNestedRecord,
+  readString,
+  runResolvedRefresh,
+  withProviderDetails,
+  writeJsonFile,
+} from "@/runtime/providers/shared.ts";
+import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
 import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
 
 const codexAppServerArgs = ["-s", "read-only", "-a", "never", "app-server"] as const;
@@ -369,6 +385,22 @@ const createCodexUsageResponse = (value: unknown): CodexUsageResponse | null => 
   };
 };
 
+const readCodexResetAt = (value: Record<string, unknown>): string | null => {
+  const stringValue = readString(value, "reset_at");
+
+  if (stringValue !== null) {
+    return stringValue;
+  }
+
+  const numericValue = readFiniteNumber(value, "reset_at");
+
+  if (numericValue === null) {
+    return explicitNull;
+  }
+
+  return new Date(numericValue * 1000).toISOString();
+};
+
 const readCodexVersion = async (host: RuntimeHost): Promise<string | null> => {
   const versionPayload = await readJsonFile(host, resolveCodexVersionPath(host));
 
@@ -408,7 +440,7 @@ const parseCodexOAuthSnapshot = (
 
   if (primaryPercent !== null) {
     metrics.push({
-      detail: readString(primaryWindow ?? usageResponse.rateLimit ?? {}, "reset_at"),
+      detail: readCodexResetAt(primaryWindow ?? usageResponse.rateLimit ?? {}),
       kind: "session",
       label: "Session",
       value: formatPercent(primaryPercent),
@@ -417,7 +449,7 @@ const parseCodexOAuthSnapshot = (
 
   if (secondaryPercent !== null) {
     metrics.push({
-      detail: readString(secondaryWindow ?? usageResponse.rateLimit ?? {}, "reset_at"),
+      detail: readCodexResetAt(secondaryWindow ?? usageResponse.rateLimit ?? {}),
       kind: "weekly",
       label: "Weekly",
       value: formatPercent(secondaryPercent),
@@ -822,6 +854,7 @@ const attachCodexServiceStatus = async (
       ...result.snapshot,
       serviceStatus: await tryFetchProviderServiceStatus(host, {
         baseUrl: codexStatusPageUrl,
+        componentName: "Codex",
         kind: "statuspage",
       }),
     },

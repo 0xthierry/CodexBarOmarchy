@@ -1,5 +1,6 @@
 import type { TokenCostSnapshot } from "@/core/store/runtime-state.ts";
 import { formatDecimalAmount } from "@/ui/tui/provider-cost-presentation.ts";
+import { formatNonAccountIdentityValue } from "@/ui/tui/runtime-formatters.ts";
 import type { ProviderView } from "@/ui/tui/types.ts";
 
 const createTokenCostDetailLines = (tokenCost: TokenCostSnapshot | null): string[] => {
@@ -87,7 +88,13 @@ const appendProviderSpecificDetailRows = (
 ): void => {
   if (providerView.status.providerDetails?.kind === "claude") {
     if (providerView.status.providerDetails.accountOrg !== null) {
-      rows.push(["org", providerView.status.providerDetails.accountOrg]);
+      const accountOrg = formatNonAccountIdentityValue(
+        providerView.status.providerDetails.accountOrg,
+      );
+
+      if (accountOrg !== "unknown") {
+        rows.push(["org", accountOrg]);
+      }
     }
 
     return;

@@ -13,6 +13,9 @@ const statusRequestTimeoutMs = 10_000;
 type ProviderServiceStatusSource =
   | {
       baseUrl: string;
+      componentName?: string;
+      componentNames?: string[];
+      componentNameIncludes?: string[];
       kind: "statuspage";
     }
   | {
@@ -30,6 +33,9 @@ const isProviderServiceStatusIndicator = (value: string): value is ProviderServi
 
 const normalizeStatusPageApiUrl = (baseUrl: string): string =>
   `${baseUrl.replace(/\/+$/u, "")}/api/v2/status.json`;
+
+const normalizeStatusPageSummaryApiUrl = (baseUrl: string): string =>
+  `${baseUrl.replace(/\/+$/u, "")}/api/v2/summary.json`;
 
 const toIsoString = (value: string | null): string | null => {
   if (value === null) {
@@ -62,9 +68,17 @@ const createWorkspaceIncidentSnapshot = (
 
 const fetchStatuspageServiceStatus = async (
   host: RuntimeHost,
-  baseUrl: string,
+  source: Extract<ProviderServiceStatusSource, { kind: "statuspage" }>,
 ): Promise<ProviderServiceStatusSnapshot> => {
-  const response = await host.http.request(normalizeStatusPageApiUrl(baseUrl), {
+  if (
+    (typeof source.componentName === "string" && source.componentName.trim() !== "") ||
+    (Array.isArray(source.componentNames) && source.componentNames.length > 0) ||
+    (Array.isArray(source.componentNameIncludes) && source.componentNameIncludes.length > 0)
+  ) {
+    return fetchStatuspageComponentServiceStatus(host, source);
+  }
+
+  const response = await host.http.request(normalizeStatusPageApiUrl(source.baseUrl), {
     method: "GET",
     timeoutMs: statusRequestTimeoutMs,
   });
@@ -91,6 +105,113 @@ const fetchStatuspageServiceStatus = async (
   const updatedAt = isRecord(pageRecord) ? toIsoString(readString(pageRecord, "updated_at")) : null;
 
   return createServiceStatusSnapshot(indicator, readString(statusRecord, "description"), updatedAt);
+};
+
+const mapStatuspageComponentIndicator = (value: string | null): ProviderServiceStatusIndicator => {
+  const normalizedValue = value?.trim().toLowerCase() ?? "";
+
+  if (normalizedValue === "operational") {
+    return "none";
+  }
+
+  if (normalizedValue === "under_maintenance") {
+    return "maintenance";
+  }
+
+  if (normalizedValue === "degraded_performance") {
+    return "minor";
+  }
+
+  if (normalizedValue === "partial_outage") {
+    return "major";
+  }
+
+  if (normalizedValue === "major_outage") {
+    return "critical";
+  }
+
+  return "unknown";
+};
+
+const normalizeComponentPatterns = (patterns: string[]): string[] =>
+  patterns.map((pattern) => pattern.trim().toLowerCase()).filter((pattern) => pattern !== "");
+
+const findMatchingStatuspageComponent = (
+  components: unknown[],
+  source: Extract<ProviderServiceStatusSource, { kind: "statuspage" }>,
+): Record<string, unknown> | null => {
+  const normalizedExactNames = new Set([
+    ...(typeof source.componentName === "string" ? [source.componentName] : []),
+    ...(Array.isArray(source.componentNames) ? source.componentNames : []),
+  ]
+    .map((pattern) => pattern.trim().toLowerCase())
+    .filter((pattern) => pattern !== ""));
+  const includesPatterns = normalizeComponentPatterns(source.componentNameIncludes ?? []);
+
+  return (
+    components.find((entry): entry is Record<string, unknown> => {
+      if (!isRecord(entry)) {
+        return false;
+      }
+
+      const entryName = readString(entry, "name")?.trim().toLowerCase() ?? "";
+
+      if (entryName === "") {
+        return false;
+      }
+
+      if (normalizedExactNames.has(entryName)) {
+        return true;
+      }
+
+      return includesPatterns.some((pattern) => entryName.includes(pattern));
+    }) ?? explicitNull
+  );
+};
+
+const fetchStatuspageComponentServiceStatus = async (
+  host: RuntimeHost,
+  source: Extract<ProviderServiceStatusSource, { kind: "statuspage" }>,
+): Promise<ProviderServiceStatusSnapshot> => {
+  const response = await host.http.request(normalizeStatusPageSummaryApiUrl(source.baseUrl), {
+    method: "GET",
+    timeoutMs: statusRequestTimeoutMs,
+  });
+
+  if (response.statusCode !== 200) {
+    throw new Error(`Statuspage request failed with HTTP ${response.statusCode}.`);
+  }
+
+  const payload = parseJsonText(response.bodyText);
+
+  if (!isRecord(payload)) {
+    throw new Error("Statuspage response was not a JSON object.");
+  }
+
+  const pageRecord = payload["page"];
+  const {components} = payload;
+
+  if (!Array.isArray(components)) {
+    throw new TypeError("Statuspage response did not include a components array.");
+  }
+
+  const componentRecord = findMatchingStatuspageComponent(components, source);
+
+  if (componentRecord === null) {
+    throw new Error("Statuspage response did not include the requested component.");
+  }
+
+  const componentStatus = readString(componentRecord, "status");
+  const updatedAt = toIsoString(
+    readString(componentRecord, "updated_at") ??
+      (isRecord(pageRecord) ? readString(pageRecord, "updated_at") : explicitNull),
+  );
+
+  return createServiceStatusSnapshot(
+    mapStatuspageComponentIndicator(componentStatus),
+    explicitNull,
+    updatedAt,
+  );
 };
 
 const readActiveWorkspaceIncidents = (payload: unknown, productId: string): WorkspaceIncident[] => {
@@ -365,7 +486,7 @@ const fetchProviderServiceStatus = async (
   source: ProviderServiceStatusSource,
 ): Promise<ProviderServiceStatusSnapshot> => {
   if (source.kind === "statuspage") {
-    return fetchStatuspageServiceStatus(host, source.baseUrl);
+    return fetchStatuspageServiceStatus(host, source);
   }
 
   return fetchWorkspaceServiceStatus(host, source.productId);

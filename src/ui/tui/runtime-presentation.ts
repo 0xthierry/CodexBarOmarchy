@@ -9,6 +9,7 @@ import { humanizeValue } from "@/ui/tui/presenter-formatters.ts";
 import {
   describeMetric,
   formatHeaderClockDisplay,
+  formatNonAccountIdentityValue,
   formatProviderHealthLabel,
   formatUpdatedDisplay,
   maskEmailAddress,
@@ -114,7 +115,7 @@ const createDetailsLines = (providerView: ProviderView): string[] => {
     ["version", providerView.status.version ?? "unknown"],
     ["updated", formatUpdatedDisplay(providerView.status.updatedAt)],
     ["account", maskEmailAddress(providerView.status.identity.accountEmail)],
-    ["plan", providerView.status.identity.planLabel ?? "unknown"],
+    ["plan", formatNonAccountIdentityValue(providerView.status.identity.planLabel)],
   ];
 
   if (providerView.status.latestError !== null) {

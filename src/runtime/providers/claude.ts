@@ -84,7 +84,6 @@ interface ClaudeExtraUsageSnapshot {
 interface ClaudeWebUsageResponse {
   accountEmail: string | null;
   metrics: ProviderMetricInput[];
-  planLabel: string | null;
 }
 
 interface ClaudeAuthStatusResponse {
@@ -92,6 +91,132 @@ interface ClaudeAuthStatusResponse {
   loggedIn: boolean | null;
   subscriptionType: string | null;
 }
+
+const isEmailLike = (value: string | null): boolean => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return false;
+  }
+
+  const trimmedValue = value.trim();
+  const separatorIndex = trimmedValue.indexOf("@");
+
+  return (
+    separatorIndex > 0 && separatorIndex < trimmedValue.length - 1 && !trimmedValue.includes(" ")
+  );
+};
+
+const containsEmailLikeSegment = (value: string | null): boolean => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return false;
+  }
+
+  return /[^\s@]+@[^\s@]+\.[^\s@]+/u.test(value);
+};
+
+const sanitizeClaudeIdentityLabel = (
+  value: string | null,
+  accountEmail: string | null,
+): string | null => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return explicitNull;
+  }
+
+  if (isEmailLike(value)) {
+    return explicitNull;
+  }
+
+  if (containsEmailLikeSegment(value)) {
+    return explicitNull;
+  }
+
+  if (
+    typeof accountEmail === "string" &&
+    accountEmail.trim() !== "" &&
+    value.trim().toLowerCase().includes(accountEmail.trim().toLowerCase())
+  ) {
+    return explicitNull;
+  }
+
+  return value.trim();
+};
+
+const humanizeClaudePlanToken = (value: string): string =>
+  value
+    .split(/[_-]+/u)
+    .filter((segment) => segment !== "")
+    .map((segment) => {
+      if (/^\d+x$/u.test(segment.toLowerCase())) {
+        return segment.toLowerCase();
+      }
+
+      return `${segment.slice(0, 1).toUpperCase()}${segment.slice(1).toLowerCase()}`;
+    })
+    .join(" ");
+
+const normalizeClaudePlanLabel = (
+  value: string | null,
+  accountEmail: string | null,
+): string | null => {
+  const sanitizedValue = sanitizeClaudeIdentityLabel(value, accountEmail);
+
+  if (sanitizedValue === null) {
+    return explicitNull;
+  }
+
+  const normalizedKey = sanitizedValue.trim().toLowerCase();
+
+  if (normalizedKey === "max" || normalizedKey === "default_claude_max") {
+    return "Max";
+  }
+
+  if (normalizedKey === "pro" || normalizedKey === "default_claude_pro") {
+    return "Pro";
+  }
+
+  if (normalizedKey === "plus" || normalizedKey === "default_claude_plus") {
+    return "Plus";
+  }
+
+  if (normalizedKey.startsWith("manual_tier_")) {
+    const tierNumber = normalizedKey.slice("manual_tier_".length);
+
+    return /^\d+$/u.test(tierNumber)
+      ? `Tier ${tierNumber}`
+      : humanizeClaudePlanToken(normalizedKey);
+  }
+
+  if (normalizedKey.startsWith("default_claude_")) {
+    return humanizeClaudePlanToken(normalizedKey.slice("default_claude_".length));
+  }
+
+  if (normalizedKey.startsWith("claude_")) {
+    return humanizeClaudePlanToken(normalizedKey.slice("claude_".length));
+  }
+
+  if (
+    sanitizedValue.includes(" ") &&
+    !sanitizedValue.includes("_") &&
+    !sanitizedValue.includes("-")
+  ) {
+    return sanitizedValue;
+  }
+
+  return humanizeClaudePlanToken(sanitizedValue);
+};
+
+const readClaudeOrganizationName = (
+  tokenPayload: Record<string, unknown>,
+  accountRecord: Record<string, unknown> | null = null,
+): string | null => {
+  const organizationRecord =
+    readNestedRecord(tokenPayload, "organization") ??
+    (accountRecord ? readNestedRecord(accountRecord, "organization") : explicitNull);
+
+  return (
+    readString(tokenPayload, "organizationName") ??
+    (organizationRecord ? readString(organizationRecord, "name") : explicitNull)
+  );
+};
 
 const tryFetchClaudeTokenCost = async (host: RuntimeHost) => {
   try {
@@ -546,7 +671,6 @@ const fetchClaudeWebUsage = async (
   return {
     accountEmail: session.accountEmail,
     metrics,
-    planLabel: session.organizationName,
   };
 };
 
@@ -561,19 +685,21 @@ const parseClaudeOAuthSnapshot = (
   const metrics = collectClaudeMetrics(oauthPayload);
   const oauthRecord = readNestedRecord(rawCredentials, "claudeAiOauth");
   const extraUsage = parseClaudeExtraUsage(oauthPayload.extraUsage);
+  const accountEmail =
+    readString(rawCredentials, "email") ??
+    (oauthRecord ? readJwtEmail(oauthRecord, "idToken") : explicitNull) ??
+    (oauthRecord ? readJwtEmail(oauthRecord, "id_token") : explicitNull) ??
+    fallbackAccountEmail;
+  const planLabel = normalizeClaudePlanLabel(credentials.subscriptionType, accountEmail);
 
   if (metrics.length === 0) {
     return createRefreshError("claude", "Claude OAuth data did not include usage metrics.");
   }
 
   const snapshot = createSnapshot({
-    accountEmail:
-      readString(rawCredentials, "email") ??
-      (oauthRecord ? readJwtEmail(oauthRecord, "idToken") : explicitNull) ??
-      (oauthRecord ? readJwtEmail(oauthRecord, "id_token") : explicitNull) ??
-      fallbackAccountEmail,
+    accountEmail,
     metrics,
-    planLabel: credentials.subscriptionType,
+    planLabel,
     providerCost:
       extraUsage === null
         ? explicitNull
@@ -611,6 +737,11 @@ const parseClaudeCliSnapshot = (
   const accountMatch = commandOutput.match(/Account:\s*([^\n]+)/);
   const planMatch = commandOutput.match(/Org:\s*([^\n]+)/);
   const metrics: ProviderMetricInput[] = [];
+  const accountEmail = accountMatch?.[1]?.trim() ?? explicitNull;
+  const accountOrg = sanitizeClaudeIdentityLabel(
+    planMatch?.[1]?.trim() ?? explicitNull,
+    accountEmail,
+  );
   const sessionPercent = sessionMatch?.[1];
   const weeklyPercent = weeklyMatch?.[1];
   const sonnetPercent = sonnetMatch?.[1];
@@ -632,9 +763,9 @@ const parseClaudeCliSnapshot = (
   }
 
   const snapshot = createSnapshot({
-    accountEmail: accountMatch?.[1]?.trim() ?? explicitNull,
+    accountEmail,
     metrics,
-    planLabel: planMatch?.[1]?.trim() ?? explicitNull,
+    planLabel: explicitNull,
     sourceLabel: "cli",
     updatedAt,
     version,
@@ -644,7 +775,7 @@ const parseClaudeCliSnapshot = (
     "claude",
     "Claude refreshed via CLI.",
     withProviderDetails(snapshot, {
-      accountOrg: planMatch?.[1]?.trim() ?? explicitNull,
+      accountOrg,
       kind: "claude",
       tokenCost: explicitNull,
     }),
@@ -658,10 +789,16 @@ const parseClaudeWebSnapshot = (
   const webMetrics = isRecord(tokenPayload) ? readProviderMetrics(tokenPayload, "metrics") : null;
 
   if (isRecord(tokenPayload) && webMetrics !== null) {
+    const accountEmail = readString(tokenPayload, "accountEmail");
+    const planLabel = normalizeClaudePlanLabel(readString(tokenPayload, "planLabel"), accountEmail);
+    const accountOrg = sanitizeClaudeIdentityLabel(
+      readClaudeOrganizationName(tokenPayload),
+      accountEmail,
+    );
     const snapshot = createSnapshot({
-      accountEmail: readString(tokenPayload, "accountEmail"),
+      accountEmail,
       metrics: webMetrics,
-      planLabel: readString(tokenPayload, "planLabel"),
+      planLabel,
       sourceLabel: "web",
       updatedAt,
       version: explicitNull,
@@ -671,7 +808,7 @@ const parseClaudeWebSnapshot = (
       "claude",
       "Claude refreshed via web session.",
       withProviderDetails(snapshot, {
-        accountOrg: readString(tokenPayload, "planLabel"),
+        accountOrg,
         kind: "claude",
         tokenCost: explicitNull,
       }),
@@ -695,7 +832,11 @@ const parseClaudeWebSnapshot = (
   const accountEmail =
     readString(tokenPayload, "email") ??
     (accountRecord ? readString(accountRecord, "email_address") : explicitNull);
-  const planLabel = readString(tokenPayload, "plan");
+  const planLabel = normalizeClaudePlanLabel(readString(tokenPayload, "plan"), accountEmail);
+  const accountOrg = sanitizeClaudeIdentityLabel(
+    readClaudeOrganizationName(tokenPayload, accountRecord),
+    accountEmail,
+  );
   const snapshot = createSnapshot({
     accountEmail,
     metrics,
@@ -709,7 +850,7 @@ const parseClaudeWebSnapshot = (
     "claude",
     "Claude refreshed via web session.",
     withProviderDetails(snapshot, {
-      accountOrg: planLabel,
+      accountOrg,
       kind: "claude",
       tokenCost: explicitNull,
     }),
@@ -934,7 +1075,7 @@ const attachClaudeTokenCost = async (
     snapshot: {
       ...result.snapshot,
       providerDetails: {
-        accountOrg: existingDetails?.accountOrg ?? result.snapshot.identity.planLabel,
+        accountOrg: existingDetails?.accountOrg ?? explicitNull,
         kind: "claude",
         tokenCost,
       },
@@ -979,10 +1120,11 @@ const createClaudeBrowserWebResult = async (
   version: string | null,
 ): Promise<ProviderRefreshActionResult<"claude">> => {
   const webUsage = await fetchClaudeWebUsage(host, session);
+  const accountOrg = sanitizeClaudeIdentityLabel(session.organizationName, webUsage.accountEmail);
   const snapshot = createSnapshot({
     accountEmail: webUsage.accountEmail,
     metrics: webUsage.metrics,
-    planLabel: webUsage.planLabel,
+    planLabel: normalizeClaudePlanLabel(session.rateLimitTier, webUsage.accountEmail),
     sourceLabel: "web",
     updatedAt,
     version,
@@ -992,7 +1134,7 @@ const createClaudeBrowserWebResult = async (
     "claude",
     "Claude refreshed via web session.",
     withProviderDetails(snapshot, {
-      accountOrg: session.organizationName,
+      accountOrg,
       kind: "claude",
       tokenCost: explicitNull,
     }),
@@ -1122,7 +1264,8 @@ const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter =
       "Opened the Claude token file.",
     );
   },
-  refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"claude">> => runResolvedRefresh({
+  refresh: async ({ providerConfig }): Promise<ProviderRefreshActionResult<"claude">> =>
+    runResolvedRefresh({
       finalizeResult: (result) => finalizeClaudeRefresh(host, result),
       providerId: "claude",
       refreshFromResolvedSource: (resolvedSource) =>

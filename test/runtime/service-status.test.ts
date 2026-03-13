@@ -129,6 +129,202 @@ test("fetchProviderServiceStatus parses Statuspage snapshots", async () => {
   ]);
 });
 
+test("fetchProviderServiceStatus can scope Statuspage status to a named component", async () => {
+  const { host, httpRequests } = createHostFixture({
+    "GET https://status.example.com/api/v2/summary.json": [
+      createJsonResponse({
+        components: [
+          {
+            name: "API",
+            status: "degraded_performance",
+            updated_at: "2026-03-11T09:10:00Z",
+          },
+          {
+            name: "Codex",
+            status: "operational",
+            updated_at: "2026-03-11T09:15:00Z",
+          },
+        ],
+        page: {
+          updated_at: "2026-03-11T09:20:00Z",
+        },
+        status: {
+          description: "Partial system degradation",
+          indicator: "minor",
+        },
+      }),
+    ],
+  });
+
+  const serviceStatus = await fetchProviderServiceStatus(host, {
+    baseUrl: "https://status.example.com/",
+    componentName: "Codex",
+    kind: "statuspage",
+  });
+
+  expect(serviceStatus).toEqual({
+    description: null,
+    indicator: "none",
+    updatedAt: "2026-03-11T09:15:00.000Z",
+  });
+  expect(httpRequests).toEqual([
+    {
+      options: {
+        method: "GET",
+        timeoutMs: 10_000,
+      },
+      url: "https://status.example.com/api/v2/summary.json",
+    },
+  ]);
+});
+
+test("fetchProviderServiceStatus can scope Statuspage snapshots to matching components", async () => {
+  const { host, httpRequests } = createHostFixture({
+    "GET https://status.example.com/api/v2/summary.json": [
+      createJsonResponse({
+        components: [
+          {
+            name: "API",
+            status: "degraded_performance",
+            updated_at: "2026-03-11T09:15:00Z",
+          },
+          {
+            name: "Codex",
+            status: "operational",
+            updated_at: "2026-03-11T09:20:00Z",
+          },
+        ],
+        page: {
+          updated_at: "2026-03-11T09:30:00Z",
+        },
+        status: {
+          description: "Partial outage",
+          indicator: "major",
+        },
+      }),
+    ],
+  });
+
+  const serviceStatus = await fetchProviderServiceStatus(host, {
+    baseUrl: "https://status.example.com/",
+    componentName: "Codex",
+    kind: "statuspage",
+  });
+
+  expect(serviceStatus).toEqual({
+    description: null,
+    indicator: "none",
+    updatedAt: "2026-03-11T09:20:00.000Z",
+  });
+  expect(httpRequests).toEqual([
+    {
+      options: {
+        method: "GET",
+        timeoutMs: 10_000,
+      },
+      url: "https://status.example.com/api/v2/summary.json",
+    },
+  ]);
+});
+
+test("fetchProviderServiceStatus scopes Statuspage summaries to a specific component", async () => {
+  const { host, httpRequests } = createHostFixture({
+    "GET https://status.example.com/api/v2/summary.json": [
+      createJsonResponse({
+        components: [
+          {
+            id: "component_chatgpt",
+            name: "ChatGPT",
+            status: "partial_outage",
+            updated_at: "2026-03-11T09:10:00Z",
+          },
+          {
+            id: "component_codex",
+            name: "Codex",
+            status: "operational",
+            updated_at: "2026-03-11T09:20:00Z",
+          },
+        ],
+        page: {
+          updated_at: "2026-03-11T09:25:00Z",
+        },
+        status: {
+          description: "Partial outage",
+          indicator: "major",
+        },
+      }),
+    ],
+  });
+
+  const serviceStatus = await fetchProviderServiceStatus(host, {
+    baseUrl: "https://status.example.com/",
+    componentName: "Codex",
+    kind: "statuspage",
+  });
+
+  expect(serviceStatus).toEqual({
+    description: null,
+    indicator: "none",
+    updatedAt: "2026-03-11T09:20:00.000Z",
+  });
+  expect(httpRequests).toEqual([
+    {
+      options: {
+        method: "GET",
+        timeoutMs: 10_000,
+      },
+      url: "https://status.example.com/api/v2/summary.json",
+    },
+  ]);
+});
+
+test("fetchProviderServiceStatus scopes Statuspage summaries to matching components when requested", async () => {
+  const { host, httpRequests } = createHostFixture({
+    "GET https://status.example.com/api/v2/summary.json": [
+      createJsonResponse({
+        components: [
+          {
+            name: "Codex",
+            status: "operational",
+          },
+          {
+            name: "ChatGPT",
+            status: "partial_outage",
+          },
+        ],
+        page: {
+          updated_at: "2026-03-11T09:15:00Z",
+        },
+        status: {
+          description: "Partial system outage",
+          indicator: "minor",
+        },
+      }),
+    ],
+  });
+
+  const serviceStatus = await fetchProviderServiceStatus(host, {
+    baseUrl: "https://status.example.com/",
+    componentNameIncludes: ["codex"],
+    kind: "statuspage",
+  });
+
+  expect(serviceStatus).toEqual({
+    description: null,
+    indicator: "none",
+    updatedAt: "2026-03-11T09:15:00.000Z",
+  });
+  expect(httpRequests).toEqual([
+    {
+      options: {
+        method: "GET",
+        timeoutMs: 10_000,
+      },
+      url: "https://status.example.com/api/v2/summary.json",
+    },
+  ]);
+});
+
 test("tryFetchWorkspaceStatusBundle filters incidents to the product and selects the highest severity", async () => {
   const { host } = createHostFixture({
     "GET https://www.google.com/appsstatus/dashboard/incidents.json": [

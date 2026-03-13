@@ -441,6 +441,7 @@ test("resolveClaudeWebSession auto reads Firefox sessionKey cookies and fetches 
       accountEmail: "claude@example.com",
       organizationId: "org_123",
       organizationName: "Claude Team",
+      rateLimitTier: null,
       sessionToken: "sk-ant-firefox-session",
     });
   } finally {
@@ -550,6 +551,7 @@ test("resolveClaudeWebSession auto reads a Chromium-family sessionKey cookie and
       accountEmail: "claude@example.com",
       organizationId: "org_chrome_123",
       organizationName: "Claude Team",
+      rateLimitTier: null,
       sessionToken: "sk-ant-chrome-session",
     });
   } finally {
@@ -666,6 +668,7 @@ test("resolveClaudeWebSession accepts Claude organizations that expose uuid plus
       accountEmail: "claude@example.com",
       organizationId: "3911a5f6-9247-4977-9a92-d2b8a515570d",
       organizationName: "Claude Team",
+      rateLimitTier: null,
       sessionToken: "sk-ant-firefox-session",
     });
   } finally {

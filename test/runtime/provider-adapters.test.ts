@@ -268,18 +268,25 @@ test("codex refreshes against the real usage API contract", async () => {
           plan_type: "pro",
           rate_limit: {
             primary_window: {
-              reset_at: "soon",
+              reset_at: 1_773_459_806,
               used_percent: 42,
             },
             secondary_window: {
-              reset_at: "later",
+              reset_at: 1_773_854_813,
               used_percent: 75,
             },
           },
         }),
       ],
-      "GET https://status.openai.com/api/v2/status.json": [
+      "GET https://status.openai.com/api/v2/summary.json": [
         createJsonResponse({
+          components: [
+            {
+              name: "Codex",
+              status: "degraded_performance",
+              updated_at: "2026-03-08T11:59:00.000Z",
+            },
+          ],
           page: {
             updated_at: "2026-03-08T11:59:00.000Z",
           },
@@ -340,7 +347,7 @@ test("codex refreshes against the real usage API contract", async () => {
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("codex@example.com");
   expect(refreshResult.snapshot?.identity.planLabel).toBe("pro");
   expect(refreshResult.snapshot?.serviceStatus).toEqual({
-    description: "Degraded performance",
+    description: null,
     indicator: "minor",
     updatedAt: "2026-03-08T11:59:00.000Z",
   });
@@ -367,13 +374,13 @@ test("codex refreshes against the real usage API contract", async () => {
   });
   expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
-      detail: "soon",
+      detail: "2026-03-14T03:43:26.000Z",
       kind: "session",
       label: "Session",
       value: "42%",
     },
     {
-      detail: "later",
+      detail: "2026-03-18T17:26:53.000Z",
       kind: "weekly",
       label: "Weekly",
       value: "75%",
@@ -403,7 +410,7 @@ test("codex refreshes against the real usage API contract", async () => {
         method: "GET",
         timeoutMs: 10_000,
       },
-      url: "https://status.openai.com/api/v2/status.json",
+      url: "https://status.openai.com/api/v2/summary.json",
     },
   ]);
 });
@@ -489,8 +496,15 @@ test("codex attaches web extras when manual cookies are enabled", async () => {
           ],
         }),
       ],
-      "GET https://status.openai.com/api/v2/status.json": [
+      "GET https://status.openai.com/api/v2/summary.json": [
         createJsonResponse({
+          components: [
+            {
+              name: "Codex",
+              status: "operational",
+              updated_at: "2026-03-08T11:59:00.000Z",
+            },
+          ],
           page: {
             updated_at: "2026-03-08T11:59:00.000Z",
           },
@@ -600,7 +614,7 @@ test("codex uses the cached access token before attempting stale-token refresh m
           email: "codex@example.com",
           rate_limit: {
             primary_window: {
-              reset_at: "soon",
+              reset_at: 1_773_459_806,
               used_percent: 42,
             },
           },
@@ -630,7 +644,7 @@ test("codex uses the cached access token before attempting stale-token refresh m
   expect(refreshResult.snapshot?.version).toBeNull();
   expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
     {
-      detail: "soon",
+      detail: "2026-03-14T03:43:26.000Z",
       kind: "session",
       label: "Session",
       value: "42%",
@@ -902,7 +916,7 @@ test("claude refreshes expired oauth credentials and persists the rotated tokens
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
-  expect(refreshResult.snapshot?.identity.planLabel).toBe("default_claude_max_5x");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max 5x");
   expect(refreshResult.snapshot?.serviceStatus).toEqual({
     description: "Partial outage",
     indicator: "major",
@@ -1011,7 +1025,7 @@ test("claude oauth falls back to auth status for account email and cli version",
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("oauth");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
-  expect(refreshResult.snapshot?.identity.planLabel).toBe("max");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max");
   expect(refreshResult.snapshot?.version).toBe("2.1.71");
   expect(fixture.httpRequests.map((request) => request.url)).toEqual([
     "https://api.anthropic.com/api/oauth/usage",
@@ -1233,7 +1247,7 @@ test("codex refreshes oauth tokens after an unauthorized usage response using cl
     "https://chatgpt.com/backend-api/wham/usage",
     "https://auth.openai.com/oauth/token",
     "https://chatgpt.com/backend-api/wham/usage",
-    "https://status.openai.com/api/v2/status.json",
+    "https://status.openai.com/api/v2/summary.json",
   ]);
   expect(fixture.httpRequests[1]?.options).toEqual({
     body: JSON.stringify({
@@ -1332,7 +1346,43 @@ test("claude auto prefers the cli fallback before the web session fallback", asy
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
-  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max Plan");
+  expect(refreshResult.snapshot?.identity.planLabel).toBeNull();
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    accountOrg: "Max Plan",
+    kind: "claude",
+  });
+});
+
+test("claude cli snapshot ignores email-like org values for plan and org details", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture({
+    commands: {
+      claude: {
+        exitCode: 0,
+        stderr: "",
+        stdout:
+          "Account: claude@example.com\nOrg: claude@example.com\nCurrent session 21%\nCurrent week (all models) 42%\nCurrent week (Sonnet) 58%\n",
+      },
+    },
+    which: {
+      claude: fakeBinaryPath("claude"),
+    },
+  });
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: config.providers.claude,
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBeNull();
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    accountOrg: null,
+    kind: "claude",
+  });
 });
 
 test("claude auto falls back to the web snapshot when cli and local fallbacks both fail", async () => {
@@ -1381,6 +1431,107 @@ test("claude auto falls back to the web snapshot when cli and local fallbacks bo
   expect(refreshResult.snapshot?.identity.planLabel).toBe("Claude Team");
 });
 
+test("claude web snapshot ignores email-like plan labels in local token payloads", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture({
+    commands: {
+      claude: {
+        exitCode: 0,
+        stderr: "",
+        stdout: "Unknown skill: status\n",
+      },
+      "claude auth status --json": {
+        exitCode: 1,
+        stderr: "auth status failed",
+        stdout: "",
+      },
+    },
+    which: {
+      claude: fakeBinaryPath("claude"),
+    },
+  });
+  const sessionPath = join(fixture.homeDirectory, ".claude", "session.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  await writeJson(sessionPath, {
+    accountEmail: "web@example.com",
+    metrics: [
+      {
+        label: "Session",
+        value: "19%",
+      },
+    ],
+    planLabel: "web@example.com",
+  });
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: config.providers.claude,
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("web");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("web@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBeNull();
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    accountOrg: null,
+    kind: "claude",
+  });
+});
+
+test("claude web snapshot ignores email-shaped plan labels and preserves explicit organization names", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture({
+    commands: {
+      claude: {
+        exitCode: 0,
+        stderr: "",
+        stdout: "Unknown skill: status\n",
+      },
+      "claude auth status --json": {
+        exitCode: 1,
+        stderr: "auth status failed",
+        stdout: "",
+      },
+    },
+    which: {
+      claude: fakeBinaryPath("claude"),
+    },
+  });
+  const sessionPath = join(fixture.homeDirectory, ".claude", "session.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  await writeJson(sessionPath, {
+    account: {
+      email_address: "web@example.com",
+      organization: {
+        name: "Claude Team",
+      },
+    },
+    plan: "web@example.com",
+    usage: {
+      five_hour: {
+        resets_at: "soon",
+        utilization: 19,
+      },
+    },
+  });
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: config.providers.claude,
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("web");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("web@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBeNull();
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    accountOrg: "Claude Team",
+    kind: "claude",
+  });
+});
+
 test("claude uses the manual session token for the web fallback path", async () => {
   const config = createConfig();
   const fixture = await createHostFixture({
@@ -1395,6 +1546,7 @@ test("claude uses the manual session token for the web fallback path", async () 
           {
             id: "org_123",
             name: "Claude Team",
+            rate_limit_tier: "default_claude_max_20x",
           },
         ]),
       ],
@@ -1471,7 +1623,7 @@ test("claude uses the manual session token for the web fallback path", async () 
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("web");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("web@example.com");
-  expect(refreshResult.snapshot?.identity.planLabel).toBe("Claude Team");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max 20x");
   expect(refreshResult.snapshot?.providerDetails).toMatchObject({
     accountOrg: "Claude Team",
     kind: "claude",
@@ -1537,6 +1689,61 @@ test("claude uses the manual session token for the web fallback path", async () 
   ]);
 });
 
+test("claude web fallback suppresses organization labels that contain the account email", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture({
+    httpResponses: {
+      "GET https://claude.ai/api/account": [
+        createJsonResponse({
+          email_address: "thierrysantoos123@gmail.com",
+        }),
+      ],
+      "GET https://claude.ai/api/organizations": [
+        createJsonResponse([
+          {
+            id: "org_123",
+            name: "thierrysantoos123@gmail.com's Organization",
+            rate_limit_tier: "default_claude_max_20x",
+          },
+        ]),
+      ],
+      "GET https://claude.ai/api/organizations/org_123/usage": [
+        createJsonResponse({
+          five_hour: {
+            resets_at: "soon",
+            utilization: 12,
+          },
+        }),
+      ],
+    },
+  });
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: {
+      ...config.providers.claude,
+      cookieSource: "manual",
+      source: "web",
+      tokenAccounts: [
+        {
+          label: "primary",
+          token: "sk-ant-session-token",
+        },
+      ],
+    },
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("web");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("thierrysantoos123@gmail.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max 20x");
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    accountOrg: null,
+    kind: "claude",
+  });
+});
+
 test("claude web automatic mode ignores manual token accounts and uses the token file", async () => {
   const config = createConfig();
   const fixture = await createHostFixture();
@@ -1574,6 +1781,7 @@ test("claude web automatic mode ignores manual token accounts and uses the token
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("web");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("auto@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Claude Team");
   expect(fixture.httpRequests).toEqual([
     {
       options: {

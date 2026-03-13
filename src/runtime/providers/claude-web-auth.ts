@@ -48,7 +48,7 @@ const fetchClaudeAccount = async (
 const fetchClaudeOrganization = async (
   host: RuntimeHost,
   sessionToken: string,
-): Promise<{ id: string; name: string | null } | null> => {
+): Promise<{ id: string; name: string | null; rateLimitTier: string | null } | null> => {
   const response = await host.http.request("https://claude.ai/api/organizations", {
     headers: {
       Accept: "application/json",
@@ -96,6 +96,7 @@ const fetchClaudeOrganization = async (
   return {
     id: organizationId,
     name: readString(firstOrganization, "name"),
+    rateLimitTier: readString(firstOrganization, "rate_limit_tier"),
   };
 };
 
@@ -116,6 +117,7 @@ const buildClaudeSessionSnapshot = async (
     accountEmail: accountRecord ? readString(accountRecord, "email_address") : null,
     organizationId: organization.id,
     organizationName: organization.name,
+    rateLimitTier: organization.rateLimitTier,
     sessionToken,
   };
 };

@@ -133,6 +133,106 @@ test("masks account emails for screenshot-safe display", () => {
   expect(maskEmailAddress("not-an-email")).toBe("not-an-email");
 });
 
+test("does not show raw email values as Claude plan or org details", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: "claude@example.com",
+      planLabel: "billing@example.com",
+    },
+    latestError: null,
+    providerDetails: {
+      accountOrg: "billing@example.com",
+      kind: "claude",
+      tokenCost: null,
+    },
+    serviceStatus: null,
+    sourceLabel: "web",
+    state: "ready",
+    updatedAt: "2026-03-10T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: null,
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.detailsLines.join("\n")).not.toContain("billing@example.com");
+});
+
+test("does not show Claude org labels that contain an email address plus suffix text", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: "thierrysantoos123@gmail.com",
+      planLabel: null,
+    },
+    latestError: null,
+    providerDetails: {
+      accountOrg: "thierrysantoos123@gmail.com's Organization",
+      kind: "claude",
+      tokenCost: null,
+    },
+    serviceStatus: null,
+    sourceLabel: "web",
+    state: "ready",
+    updatedAt: "2026-03-10T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: null,
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.detailsLines.join("\n")).not.toContain("thierrysantoos123@gmail.com");
+  expect(viewModel.detailsLines.join("\n")).not.toContain("Organization");
+  expect(viewModel.detailsLines.join("\n")).not.toContain("org      ");
+});
+
 test("omits usage health status when the provider is operational", () => {
   const runtimeStateMap = createDefaultProviderRuntimeStateMap();
 
@@ -427,6 +527,159 @@ test("renders Claude provider details from the structured providerDetails snapsh
   expect(viewModel.usageLines.join("\n")).toContain("Estimated token cost 30d: USD 12.34");
   expect(viewModel.detailsLines.join("\n")).toContain("org");
   expect(viewModel.detailsLines.join("\n")).toContain("Claude Team");
+});
+
+test("suppresses email-like Claude org and plan values from details", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: "claude@example.com",
+      planLabel: "claude@example.com",
+    },
+    latestError: null,
+    providerDetails: {
+      accountOrg: "claude@example.com",
+      kind: "claude",
+      tokenCost: null,
+    },
+    serviceStatus: null,
+    sourceLabel: "cli",
+    state: "ready",
+    updatedAt: "2026-03-10T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: "2.1.71",
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.detailsLines.join("\n")).toContain("account  cla****de@example.com");
+  expect(viewModel.detailsLines.join("\n")).toContain("plan     unknown");
+  expect(viewModel.detailsLines.join("\n")).not.toContain("org      claude@example.com");
+});
+
+test("does not leak raw Claude emails through plan or org detail rows", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: "claude@example.com",
+      planLabel: "claude@example.com",
+    },
+    latestError: null,
+    providerDetails: {
+      accountOrg: "claude@example.com",
+      kind: "claude",
+      tokenCost: null,
+    },
+    serviceStatus: null,
+    sourceLabel: "web",
+    state: "ready",
+    updatedAt: "2026-03-10T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: "2.1.71",
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.detailsLines.join("\n")).not.toContain("claude@example.com");
+  expect(viewModel.detailsLines.join("\n")).toContain("plan     unknown");
+  expect(viewModel.detailsLines.join("\n")).not.toContain("org");
+});
+
+test("does not render Claude plan and org rows with raw email values", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: "claude@example.com",
+      planLabel: "claude@example.com",
+    },
+    latestError: null,
+    providerDetails: {
+      accountOrg: "claude@example.com",
+      kind: "claude",
+      tokenCost: null,
+    },
+    serviceStatus: null,
+    sourceLabel: "web",
+    state: "ready",
+    updatedAt: "2026-03-10T12:00:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [],
+      windows: {
+        flash: null,
+        pro: null,
+        session: null,
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: "2.1.71",
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+  );
+
+  expect(viewModel.detailsLines.join("\n")).toContain("account  cla****de@example.com");
+  expect(viewModel.detailsLines.join("\n")).toContain("plan     unknown");
+  expect(viewModel.detailsLines.join("\n")).not.toContain("org      claude@example.com");
 });
 
 test("keeps Claude local counters compact so cost lines remain visible", () => {

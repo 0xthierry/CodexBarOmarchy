@@ -35,16 +35,37 @@ const parseIsoDate = (value: string): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const isEmailAddress = (value: string | null): boolean => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return false;
+  }
+
+  const trimmedValue = value.trim();
+  const separatorIndex = trimmedValue.indexOf("@");
+
+  return (
+    separatorIndex > 0 && separatorIndex < trimmedValue.length - 1 && !trimmedValue.includes(" ")
+  );
+};
+
+const containsEmailAddress = (value: string | null): boolean => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return false;
+  }
+
+  return /[^\s@]+@[^\s@]+\.[^\s@]+/u.test(value);
+};
+
 const maskEmailAddress = (value: string | null): string => {
   if (typeof value !== "string" || value.trim() === "") {
     return "unknown";
   }
 
-  const separatorIndex = value.indexOf("@");
-
-  if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
+  if (!isEmailAddress(value)) {
     return value;
   }
+
+  const separatorIndex = value.indexOf("@");
 
   const localPart = value.slice(0, separatorIndex);
   const domainPart = value.slice(separatorIndex + 1);
@@ -61,6 +82,14 @@ const maskEmailAddress = (value: string | null): string => {
     visibleSuffixLength === 0 ? "" : localPart.slice(localPart.length - visibleSuffixLength);
 
   return `${localPart.slice(0, visiblePrefixLength)}****${visibleSuffix}@${domainPart}`;
+};
+
+const formatNonAccountIdentityValue = (value: string | null): string => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return "unknown";
+  }
+
+  return containsEmailAddress(value) ? "unknown" : value;
 };
 
 const formatProviderHealthLabel = (value: ProviderView["status"]["serviceStatus"]): string => {
@@ -160,9 +189,12 @@ const formatHeaderClockDisplay = (value: Date): string => `Today ${formatTimesta
 
 export {
   describeMetric,
+  formatNonAccountIdentityValue,
   formatHeaderClockDisplay,
   formatProviderHealthLabel,
   formatUpdatedDisplay,
+  containsEmailAddress,
+  isEmailAddress,
   maskEmailAddress,
   parseIsoDate,
 };
