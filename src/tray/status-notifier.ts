@@ -1,6 +1,7 @@
 import * as dbus from "dbus-next";
 import {
-  trayIconPath,
+  trayIconName,
+  trayIconThemePath,
   trayItemInterfaceName,
   trayNoMenuObjectPath,
   trayWatcherBusName,
@@ -23,8 +24,8 @@ class StatusNotifierItemInterface extends Interface {
   AttentionIconName = "";
   Category = "ApplicationStatus";
   IconAccessibleDesc = "agent-stats tray";
-  IconName = trayIconPath;
-  IconThemePath = "";
+  IconName = trayIconName;
+  IconThemePath = trayIconThemePath;
   Id = "agent-stats";
   ItemIsMenu = false;
   Menu = trayNoMenuObjectPath;

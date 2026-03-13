@@ -16,7 +16,7 @@ interface CommandRecord {
 const fakeBinaryPath = (binaryName: string): string => `test-bin/${binaryName}`;
 const repoRoot = "test-fixtures/repo-root";
 const repoLocalLaunchTarget = {
-  args: ["run", "--cwd", repoRoot, "tui"],
+  args: ["run", "--cwd", repoRoot, "app", "tui"],
   command: "bun",
 };
 
@@ -132,6 +132,7 @@ test("createOmarchyTerminalLaunchCommand wraps the repo-local tui target with Om
       "run",
       "--cwd",
       repoRoot,
+      "app",
       "tui",
     ],
     command: "uwsm-app",
@@ -182,6 +183,7 @@ test("planTrayActivation returns a launch action with the configured app id when
         "run",
         "--cwd",
         repoRoot,
+        "app",
         "tui",
       ],
       command: "uwsm-app",
@@ -252,6 +254,7 @@ test("activateTrayTui launches the TUI when no matching client exists", async ()
         "run",
         "--cwd",
         repoRoot,
+        "app",
         "tui",
       ],
       command: "uwsm-app",

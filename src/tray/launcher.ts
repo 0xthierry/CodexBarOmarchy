@@ -1,6 +1,6 @@
 import type { RuntimeCommandResult } from "@/runtime/host.ts";
 import { trayTuiAppId } from "@/tray/constants.ts";
-import { createRepoLocalTuiLaunchTarget } from "@/tray/tui-command.ts";
+import { createDefaultTuiLaunchTarget } from "@/tray/tui-command.ts";
 import type { TrayLaunchTarget } from "@/tray/tui-command.ts";
 
 interface TrayLauncherHost {
@@ -142,7 +142,7 @@ const planTrayActivation = (
   } = {},
 ): TrayActivationPlan => {
   const appId = options.appId ?? trayTuiAppId;
-  const launchTarget = options.launchTarget ?? createRepoLocalTuiLaunchTarget();
+  const launchTarget = options.launchTarget ?? createDefaultTuiLaunchTarget();
   const matchingAddress = findMatchingHyprlandClientAddress(clients, appId);
 
   if (matchingAddress !== null) {
@@ -186,7 +186,7 @@ const activateTrayTui = async (
   } = {},
 ): Promise<void> => {
   const appId = options.appId ?? trayTuiAppId;
-  const launchTarget = options.launchTarget ?? createRepoLocalTuiLaunchTarget();
+  const launchTarget = options.launchTarget ?? createDefaultTuiLaunchTarget();
 
   await ensureCommandAvailable(host, "hyprctl");
 

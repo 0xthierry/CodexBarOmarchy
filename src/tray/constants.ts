@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 interface TrayIdentity {
@@ -13,10 +15,24 @@ const trayWatcherBusName = "org.kde.StatusNotifierWatcher";
 const trayWatcherInterfaceName = "org.kde.StatusNotifierWatcher";
 const trayWatcherObjectPath = "/StatusNotifierWatcher";
 const trayNoMenuObjectPath = "/NO_DBUSMENU";
-const trayIconPath = fileURLToPath(
-  new URL("../../assets/tray/agent-stats-tray.svg", import.meta.url),
-);
+const trayIconName = "agent-stats-tray";
 const trayIdentitySuffixEnvVar = "OMARCHY_AGENT_BAR_ID_SUFFIX";
+
+const createTrayAssetDirectoryCandidates = (moduleUrl = import.meta.url): string[] => [
+  fileURLToPath(new URL("../../assets/tray", moduleUrl)),
+  join(dirname(process.execPath), "assets", "tray"),
+  join(process.cwd(), "assets", "tray"),
+];
+
+const resolveTrayIconThemePath = (moduleUrl = import.meta.url): string => {
+  for (const directoryPath of createTrayAssetDirectoryCandidates(moduleUrl)) {
+    if (existsSync(join(directoryPath, `${trayIconName}.svg`))) {
+      return directoryPath;
+    }
+  }
+
+  return fileURLToPath(new URL("../../assets/tray", moduleUrl));
+};
 
 const normalizeTrayIdentitySuffix = (value?: string): string | null => {
   if (typeof value !== "string") {
@@ -45,12 +61,16 @@ const trayIdentity = buildTrayIdentity(
   normalizeTrayIdentitySuffix(process.env[trayIdentitySuffixEnvVar]),
 );
 const { trayBusName, trayTuiAppId } = trayIdentity;
+const trayIconThemePath = resolveTrayIconThemePath();
 
 export {
   buildTrayIdentity,
+  createTrayAssetDirectoryCandidates,
   normalizeTrayIdentitySuffix,
   trayBusName,
-  trayIconPath,
+  resolveTrayIconThemePath,
+  trayIconName,
+  trayIconThemePath,
   trayIdentitySuffixEnvVar,
   trayItemInterfaceName,
   trayItemObjectPath,

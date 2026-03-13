@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type * as dbus from "dbus-next";
-import { trayBusName, trayIconPath } from "../../src/tray/constants.ts";
+import { trayBusName, trayIconName, trayIconThemePath } from "../../src/tray/constants.ts";
 import {
   createStatusNotifierItem,
   registerStatusNotifierItem,
@@ -15,7 +15,8 @@ test("createStatusNotifierItem exposes the tray metadata and activates the callb
   });
 
   expect(item.Id).toBe("agent-stats");
-  expect(item.IconName).toBe(trayIconPath);
+  expect(item.IconName).toBe(trayIconName);
+  expect(item.IconThemePath).toBe(trayIconThemePath);
   expect(item.ItemIsMenu).toBe(false);
   expect(item.Status).toBe("Active");
 
