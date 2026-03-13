@@ -6,6 +6,7 @@ readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly binary_name="omarchy-agent-bar"
 readonly desktop_entry_name="omarchy-agent-bar.desktop"
 readonly icon_relative_path="assets/tray/agent-stats-tray.svg"
+readonly hypr_config_relative_path="hypr/omarchy-agent-bar.conf"
 
 normalize_arch() {
   case "$1" in
@@ -51,7 +52,7 @@ main() {
 
   mkdir -p "${release_root}"
   rm -rf "${bundle_root}"
-  mkdir -p "${bundle_root}/assets/tray"
+  mkdir -p "${bundle_root}/assets/tray" "${bundle_root}/hypr"
 
   (
     cd "${repo_root}"
@@ -60,6 +61,9 @@ main() {
 
   install -m 0755 "${repo_root}/dist/${binary_name}" "${bundle_root}/${binary_name}"
   install -m 0644 "${repo_root}/${icon_relative_path}" "${bundle_root}/${icon_relative_path}"
+  install -m 0644 \
+    "${repo_root}/packaging/linux/omarchy-agent-bar.hyprland.conf" \
+    "${bundle_root}/${hypr_config_relative_path}"
   install -m 0644 \
     "${repo_root}/packaging/linux/${desktop_entry_name}.in" \
     "${bundle_root}/${desktop_entry_name}.in"
