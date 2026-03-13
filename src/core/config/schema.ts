@@ -26,20 +26,22 @@ interface ProviderConfigurations {
 
 type ProviderId = "claude" | "codex" | "gemini";
 
-interface OmarchyAgentBarConfig {
-  providerOrder: ProviderId[];
-  providers: ProviderConfigurations;
-  selectedProvider: ProviderId;
-  version: typeof configVersion;
-}
-
 interface ProviderEnabledMap {
   claude: boolean;
   codex: boolean;
   gemini: boolean;
 }
 
+interface OmarchyAgentBarConfig {
+  detectedBinaries: ProviderEnabledMap | null;
+  providerOrder: ProviderId[];
+  providers: ProviderConfigurations;
+  selectedProvider: ProviderId;
+  version: typeof configVersion;
+}
+
 const createDefaultConfig = (): OmarchyAgentBarConfig => ({
+  detectedBinaries: null,
   providerOrder: [...defaultProviderOrder],
   providers: {
     claude: createDefaultClaudeProviderConfig(),
@@ -66,6 +68,18 @@ const normalizeProviderConfigurations = (value: unknown): ProviderConfigurations
   };
 };
 
+const normalizeDetectedBinaries = (value: unknown): ProviderEnabledMap | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return {
+    claude: value["claude"] === true,
+    codex: value["codex"] === true,
+    gemini: value["gemini"] === true,
+  };
+};
+
 const normalizeConfig = (value: unknown): OmarchyAgentBarConfig => {
   const defaults = createDefaultConfig();
 
@@ -77,6 +91,7 @@ const normalizeConfig = (value: unknown): OmarchyAgentBarConfig => {
   const providers = normalizeProviderConfigurations(value["providers"]);
 
   return {
+    detectedBinaries: normalizeDetectedBinaries(value["detectedBinaries"]),
     providerOrder,
     providers,
     selectedProvider: normalizeSelectedProvider(value["selectedProvider"], providerOrder),

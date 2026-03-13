@@ -5,16 +5,19 @@ import { describe, expect, test } from "bun:test";
 const explicitNull = null;
 
 const expectedDefaultConfig: ReturnType<typeof createDefaultConfig> = {
+  detectedBinaries: null,
   providerOrder: ["codex", "claude", "gemini"],
   providers: {
     claude: {
       activeTokenAccountIndex: 0,
+      availabilityMode: "auto",
       cookieSource: "auto",
       enabled: true,
       source: "auto",
       tokenAccounts: [],
     },
     codex: {
+      availabilityMode: "auto",
       cookieHeader: explicitNull,
       cookieSource: "off",
       enabled: true,
@@ -23,6 +26,7 @@ const expectedDefaultConfig: ReturnType<typeof createDefaultConfig> = {
       source: "auto",
     },
     gemini: {
+      availabilityMode: "auto",
       enabled: true,
     },
   },
@@ -35,6 +39,7 @@ const normalizationInput = {
   providers: {
     claude: {
       activeTokenAccountIndex: 4,
+      availabilityMode: "manual",
       cookieSource: "manual",
       tokenAccounts: [
         {
@@ -48,6 +53,7 @@ const normalizationInput = {
       ],
     },
     codex: {
+      availabilityMode: "manual",
       cookieHeader: "Cookie: sid=123",
       cookieSource: "manual",
       enabled: false,
@@ -56,6 +62,7 @@ const normalizationInput = {
       source: "oauth",
     },
     gemini: {
+      availabilityMode: "manual",
       enabled: false,
     },
   },
@@ -64,10 +71,12 @@ const normalizationInput = {
 };
 
 const expectedNormalizedConfig: ReturnType<typeof createDefaultConfig> = {
+  detectedBinaries: null,
   providerOrder: ["gemini", "codex", "claude"],
   providers: {
     claude: {
       activeTokenAccountIndex: 0,
+      availabilityMode: "manual",
       cookieSource: "manual",
       enabled: true,
       source: "auto",
@@ -79,6 +88,7 @@ const expectedNormalizedConfig: ReturnType<typeof createDefaultConfig> = {
       ],
     },
     codex: {
+      availabilityMode: "manual",
       cookieHeader: "Cookie: sid=123",
       cookieSource: "manual",
       enabled: false,
@@ -87,6 +97,7 @@ const expectedNormalizedConfig: ReturnType<typeof createDefaultConfig> = {
       source: "oauth",
     },
     gemini: {
+      availabilityMode: "manual",
       enabled: false,
     },
   },

@@ -13,7 +13,6 @@ import {
   minimumRefreshSchedulerIntervalMs,
 } from "@/core/store/scheduler.ts";
 
-const firstSavedConfigIndex = 0;
 const lastSavedConfigIndex = -1;
 const noop = (): void => {};
 const slowSaveDelayMs = 20;
@@ -146,6 +145,7 @@ test("initializes with the persisted config and exposes provider views", async (
       ...initialConfig.providers,
       claude: {
         ...initialConfig.providers.claude,
+        availabilityMode: "manual",
         enabled: false,
       },
     },
@@ -230,9 +230,13 @@ test("updates runtime state immediately and persists provider enablement changes
   const pendingUpdate = appStore.setProviderEnabled("claude", false);
 
   expect(appStore.getState().config.providers.claude.enabled).toBe(false);
+  expect(appStore.getState().config.providers.claude.availabilityMode).toBe("manual");
   expect(appStore.getState().selectedProviderId).toBe("codex");
   await pendingUpdate;
-  expect(configStore.savedConfigs[firstSavedConfigIndex]?.providers.claude.enabled).toBe(false);
+  expect(configStore.savedConfigs.at(lastSavedConfigIndex)?.providers.claude.enabled).toBe(false);
+  expect(configStore.savedConfigs.at(lastSavedConfigIndex)?.providers.claude.availabilityMode).toBe(
+    "manual",
+  );
 });
 
 test("serializes overlapping mutations so later saves cannot roll state back", async () => {

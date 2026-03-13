@@ -2,9 +2,11 @@ import { isRecord, readArray, readBoolean, readInteger, readStringEnum } from ".
 
 const defaultTokenAccountIndex = 0;
 
+const providerAvailabilityModes = ["auto", "manual"] as const;
 const claudeCookieSources = ["auto", "manual"] as const;
 const claudeUsageSources = ["auto", "oauth", "web", "cli"] as const;
 
+type ProviderAvailabilityMode = (typeof providerAvailabilityModes)[number];
 type ClaudeCookieSource = (typeof claudeCookieSources)[number];
 type ClaudeUsageSource = (typeof claudeUsageSources)[number];
 
@@ -14,9 +16,10 @@ interface ClaudeTokenAccount {
 }
 
 interface ClaudeProviderConfig {
-  enabled: boolean;
   activeTokenAccountIndex: number;
+  availabilityMode: ProviderAvailabilityMode;
   cookieSource: ClaudeCookieSource;
+  enabled: boolean;
   source: ClaudeUsageSource;
   tokenAccounts: ClaudeTokenAccount[];
 }
@@ -51,6 +54,7 @@ const normalizeTokenAccountIndex = (index: number, tokenAccountCount: number): n
 
 const createDefaultClaudeProviderConfig = (): ClaudeProviderConfig => ({
   activeTokenAccountIndex: defaultTokenAccountIndex,
+  availabilityMode: "auto",
   cookieSource: "auto",
   enabled: true,
   source: "auto",
@@ -73,6 +77,11 @@ const normalizeClaudeProviderConfig = (value: unknown): ClaudeProviderConfig => 
 
   return {
     activeTokenAccountIndex: normalizeTokenAccountIndex(configuredIndex, tokenAccounts.length),
+    availabilityMode: readStringEnum(value, {
+      allowedValues: providerAvailabilityModes,
+      fallback: defaults.availabilityMode,
+      key: "availabilityMode",
+    }),
     cookieSource: readStringEnum(value, {
       allowedValues: claudeCookieSources,
       fallback: defaults.cookieSource,
@@ -93,8 +102,10 @@ export {
   claudeUsageSources,
   createDefaultClaudeProviderConfig,
   normalizeClaudeProviderConfig,
+  providerAvailabilityModes,
   type ClaudeCookieSource,
   type ClaudeProviderConfig,
+  type ProviderAvailabilityMode,
   type ClaudeTokenAccount,
   type ClaudeUsageSource,
 };

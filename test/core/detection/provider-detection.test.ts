@@ -65,7 +65,7 @@ const createDetectionCase = (
   },
   enabledProviders: {
     claude: claudeInstalled,
-    codex: codexInstalled || (!claudeInstalled && !codexInstalled && !geminiInstalled),
+    codex: codexInstalled,
     gemini: geminiInstalled,
   },
 });
@@ -89,6 +89,11 @@ const expectFirstRunState = (
 ): void => {
   expect(result.created).toBe(true);
   expect(result.detectionRun).toBe(true);
+  expect(result.config.detectedBinaries).toEqual({
+    claude: true,
+    codex: false,
+    gemini: false,
+  });
   expect(result.config.providers.claude.enabled).toBe(true);
   expect(result.config.providers.codex.enabled).toBe(false);
 };
@@ -128,6 +133,7 @@ const enableCodexManually = async (
       ...initializationResult.config.providers,
       codex: {
         ...initializationResult.config.providers.codex,
+        availabilityMode: "manual",
         enabled: true,
       },
     },
@@ -164,7 +170,23 @@ for (const detectionCase of createDetectionCases()) {
   });
 }
 
-test("runs provider detection only when the config file is first created", async () => {
+test("does not auto-enable any provider when no CLIs are installed on first run", async () => {
+  const configStore = createInMemoryConfigStore();
+  const initializationResult = await initializeConfigWithDetection({
+    binaryLocator: createTestBinaryLocator({
+      claude: false,
+      codex: false,
+      gemini: false,
+    }),
+    configStore,
+  });
+
+  expect(initializationResult.config.providers.claude.enabled).toBe(false);
+  expect(initializationResult.config.providers.codex.enabled).toBe(false);
+  expect(initializationResult.config.providers.gemini.enabled).toBe(false);
+});
+
+test("does not overwrite existing enabled flags when detection state is unchanged", async () => {
   const filePath = createTemporaryConfigPath();
   const { binaryLocator, configStore, firstRunResult } = await createFirstRunResult(filePath);
 
@@ -173,7 +195,7 @@ test("runs provider detection only when the config file is first created", async
 
   const secondRunResult = await initializeConfigWithDetection({
     binaryLocator: createTestBinaryLocator({
-      claude: false,
+      claude: true,
       codex: false,
       gemini: false,
     }),
@@ -183,6 +205,78 @@ test("runs provider detection only when the config file is first created", async
   expect(secondRunResult.created).toBe(false);
   expect(secondRunResult.detectionRun).toBe(false);
   expect(secondRunResult.config.providers.codex.enabled).toBe(true);
+});
+
+test("auto-enables a provider when its CLI becomes newly available later", async () => {
+  const filePath = createTemporaryConfigPath();
+  const configStore = createConfigStore({ filePath });
+
+  const initialResult = await initializeConfigWithDetection({
+    binaryLocator: createTestBinaryLocator({
+      claude: false,
+      codex: false,
+      gemini: false,
+    }),
+    configStore,
+  });
+
+  expect(initialResult.config.providers.gemini.enabled).toBe(false);
+
+  const secondRunResult = await initializeConfigWithDetection({
+    binaryLocator: createTestBinaryLocator({
+      claude: false,
+      codex: false,
+      gemini: true,
+    }),
+    configStore,
+  });
+
+  expect(secondRunResult.created).toBe(false);
+  expect(secondRunResult.detectionRun).toBe(true);
+  expect(secondRunResult.config.providers.gemini.enabled).toBe(true);
+  expect(secondRunResult.config.detectedBinaries).toEqual({
+    claude: false,
+    codex: false,
+    gemini: true,
+  });
+});
+
+test("does not re-enable a provider that the user explicitly disabled while it remained installed", async () => {
+  const filePath = createTemporaryConfigPath();
+  const configStore = createConfigStore({ filePath });
+  const initialResult = await initializeConfigWithDetection({
+    binaryLocator: createTestBinaryLocator({
+      claude: false,
+      codex: true,
+      gemini: false,
+    }),
+    configStore,
+  });
+
+  await configStore.save({
+    ...initialResult.config,
+    providers: {
+      ...initialResult.config.providers,
+      codex: {
+        ...initialResult.config.providers.codex,
+        availabilityMode: "manual",
+        enabled: false,
+      },
+    },
+  });
+
+  const secondRunResult = await initializeConfigWithDetection({
+    binaryLocator: createTestBinaryLocator({
+      claude: false,
+      codex: true,
+      gemini: false,
+    }),
+    configStore,
+  });
+
+  expect(secondRunResult.created).toBe(false);
+  expect(secondRunResult.detectionRun).toBe(false);
+  expect(secondRunResult.config.providers.codex.enabled).toBe(false);
 });
 
 test("repairs the selected provider when detection disables the default selection", async () => {
@@ -219,6 +313,7 @@ test("re-applies provider detection when forced", async () => {
       ...initialResult.config.providers,
       claude: {
         ...initialResult.config.providers.claude,
+        availabilityMode: "manual",
         enabled: true,
       },
     },
@@ -237,6 +332,7 @@ test("re-applies provider detection when forced", async () => {
   expect(forcedResult.created).toBe(false);
   expect(forcedResult.detectionRun).toBe(true);
   expect(forcedResult.config.providers.claude.enabled).toBe(false);
+  expect(forcedResult.config.providers.claude.availabilityMode).toBe("auto");
   expect(forcedResult.config.providers.codex.enabled).toBe(false);
   expect(forcedResult.config.providers.gemini.enabled).toBe(true);
 });

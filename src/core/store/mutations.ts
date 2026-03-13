@@ -58,6 +58,7 @@ const setProviderEnabled = (
   if (providerId === "claude") {
     return setClaudeConfig(config, (providerConfig) => ({
       ...providerConfig,
+      availabilityMode: "manual",
       enabled,
     }));
   }
@@ -65,12 +66,14 @@ const setProviderEnabled = (
   if (providerId === "codex") {
     return setCodexConfig(config, (providerConfig) => ({
       ...providerConfig,
+      availabilityMode: "manual",
       enabled,
     }));
   }
 
   return setGeminiConfig(config, (providerConfig) => ({
     ...providerConfig,
+    availabilityMode: "manual",
     enabled,
   }));
 };
