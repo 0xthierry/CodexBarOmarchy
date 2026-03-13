@@ -70,9 +70,9 @@ main() {
   rm -f "${archive_path}" "${checksum_path}"
   (
     cd "${release_root}"
-    tar -czf "${archive_path}" "${artifact_basename}"
+    tar -czf "${artifact_basename}.tar.gz" "${artifact_basename}"
+    sha256sum "${artifact_basename}.tar.gz" >"${artifact_basename}.tar.gz.sha256"
   )
-  sha256sum "${archive_path}" >"${checksum_path}"
 
   printf 'Created release bundle:\n'
   printf '  %s\n' "${archive_path}"

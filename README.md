@@ -65,6 +65,22 @@ That installer currently performs a user-local install using:
 
 It leaves `~/.config/omarchy-agent-bar/config.json` in place on uninstall.
 
+### Release Install
+
+The repository root now includes a release installer for GitHub-hosted bundles:
+
+```bash
+bash install.sh
+```
+
+To install a specific release instead of `latest`:
+
+```bash
+bash install.sh 0.1.0
+```
+
+That script downloads the versioned release archive and checksum from GitHub Releases, verifies the checksum, extracts the bundle, and then runs the bundled installer.
+
 ## Usage
 
 Launch the interactive TUI:
