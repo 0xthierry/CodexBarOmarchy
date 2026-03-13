@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Omarchy Agent Bar
+Comment=Tray launcher for Omarchy Agent Bar
+Exec=@EXECUTABLE_PATH@ tray
+Icon=@ICON_PATH@
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true

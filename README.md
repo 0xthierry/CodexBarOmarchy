@@ -45,6 +45,26 @@ This repository is currently focused on `codex`, `claude`, and `gemini`. It is c
 bun install
 ```
 
+### Local Release Bundle Preview
+
+The first install packaging slice can now build a local release bundle:
+
+```bash
+bun install
+bun run package:release -- 0.1.0
+tar -xzf dist/release/omarchy-agent-bar-0.1.0-linux-x64.tar.gz -C /tmp
+bash /tmp/omarchy-agent-bar-0.1.0-linux-x64/install.sh
+```
+
+That installer currently performs a user-local install using:
+
+- `~/.local/share/omarchy-agent-bar/<version>/`
+- `~/.local/share/omarchy-agent-bar/current`
+- `~/.local/bin/omarchy-agent-bar`
+- `~/.config/autostart/omarchy-agent-bar.desktop`
+
+It leaves `~/.config/omarchy-agent-bar/config.json` in place on uninstall.
+
 ## Usage
 
 Launch the interactive TUI:
@@ -78,7 +98,13 @@ Common keys in the TUI:
 
 If `stdout` is not a TTY, `bun run tui` falls back to a plain-text snapshot instead of the interactive renderer.
 
-The current tray slice is manual-start only. Install packaging and session autostart are deferred; the tray launcher is intentionally shaped so those can be added later without rewriting the tray service.
+The local bundle installer now writes an XDG autostart desktop entry that launches:
+
+```bash
+~/.local/bin/omarchy-agent-bar tray
+```
+
+Release automation is still deferred. The current packaging flow is local-first so the install layout can be proven before wiring GitHub Releases.
 
 ## Configuration
 

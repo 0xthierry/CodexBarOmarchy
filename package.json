@@ -7,6 +7,7 @@
     "build": "bun run typecheck",
     "app": "bun run src/main.ts",
     "build:bin": "bun build --compile src/main.ts --outfile dist/omarchy-agent-bar",
+    "package:release": "./scripts/package-release.sh",
     "stats": "bun run app stats",
     "tray": "OMARCHY_AGENT_BAR_ID_SUFFIX=dev bun run app tray",
     "tui": "bun run app tui",
