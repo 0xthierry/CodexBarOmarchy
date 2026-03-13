@@ -125,3 +125,20 @@ bun run typecheck
 ```
 
 `bun run stats` is useful for scripting and verification because it prints a JSON snapshot and excludes secret token values from saved Claude token accounts.
+
+## Releases
+
+Release automation is wired through Release Please in `.github/workflows/release-please.yml`.
+
+The intended flow is:
+
+1. conventional commits land on `main`
+2. Release Please opens or updates a release PR
+3. merging that release PR creates the tag, changelog update, and GitHub release
+4. the same workflow builds the packaged release bundle and uploads the `.tar.gz` asset plus checksum
+
+Important:
+
+- Release Please only creates a release PR after releasable commits land on `main`
+- the important conventional commit prefixes are `feat:` and `fix:`
+- `build:` and `chore:` commits by themselves are not releasable units in Release Please's default model
