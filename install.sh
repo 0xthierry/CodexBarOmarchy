@@ -1,11 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-set -euo pipefail
+set -eu
 
-readonly binary_name="omarchy-agent-bar"
-readonly default_repository="0xthierry/CodexBarOmarchy"
-readonly release_host="${OMARCHY_AGENT_BAR_RELEASE_HOST:-https://github.com}"
-readonly repository="${OMARCHY_AGENT_BAR_REPOSITORY:-${default_repository}}"
+binary_name="omarchy-agent-bar"
+default_repository="0xthierry/CodexBarOmarchy"
+release_host="${OMARCHY_AGENT_BAR_RELEASE_HOST:-https://github.com}"
+repository="${OMARCHY_AGENT_BAR_REPOSITORY:-${default_repository}}"
 
 normalize_arch() {
   case "$1" in
@@ -29,12 +29,11 @@ require_command() {
 }
 
 normalize_version() {
-  local version="$1"
+  version="$1"
   printf '%s\n' "${version#v}"
 }
 
 resolve_latest_version() {
-  local latest_url
   latest_url="$(
     curl \
       -fsSL \
@@ -43,8 +42,8 @@ resolve_latest_version() {
       "${release_host}/${repository}/releases/latest"
   )"
 
-  local latest_tag="${latest_url##*/}"
-  if [[ -z "${latest_tag}" ]]; then
+  latest_tag="${latest_url##*/}"
+  if [ -z "${latest_tag}" ]; then
     printf 'Failed to resolve the latest release tag from %s\n' "${latest_url}" >&2
     exit 1
   fi
@@ -53,10 +52,51 @@ resolve_latest_version() {
 }
 
 download_asset() {
-  local source_url="$1"
-  local destination_path="$2"
+  source_url="$1"
+  destination_path="$2"
 
   curl --fail --location --retry 3 --silent --show-error --output "${destination_path}" "${source_url}"
+}
+
+print_usage() {
+  cat <<'EOF'
+Usage: install.sh [--version vX.Y.Z]
+
+Installs the latest GitHub release by default.
+Use --version to install a specific release.
+EOF
+}
+
+parse_args() {
+  requested_version="${OMARCHY_AGENT_BAR_VERSION:-}"
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --version)
+        if [ "$#" -lt 2 ]; then
+          printf 'Missing value for --version\n' >&2
+          exit 1
+        fi
+        requested_version="$2"
+        shift 2
+        ;;
+      --help|-h)
+        print_usage
+        exit 0
+        ;;
+      *)
+        printf 'Unknown argument: %s\n' "$1" >&2
+        print_usage >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+
+cleanup() {
+  if [ -n "${temp_root:-}" ] && [ -d "${temp_root}" ]; then
+    rm -rf "${temp_root}"
+  fi
 }
 
 main() {
@@ -65,26 +105,24 @@ main() {
   require_command sha256sum
   require_command tar
 
-  local requested_version="${1:-${OMARCHY_AGENT_BAR_VERSION:-}}"
-  local version
-  if [[ -n "${requested_version}" ]]; then
+  parse_args "$@"
+
+  if [ -n "${requested_version}" ]; then
     version="$(normalize_version "${requested_version}")"
   else
     version="$(resolve_latest_version)"
   fi
 
-  local tag_name="v${version}"
-  local arch
+  tag_name="v${version}"
   arch="$(normalize_arch "$(uname -m)")"
-  local artifact_basename="${binary_name}-${version}-linux-${arch}"
-  local archive_name="${artifact_basename}.tar.gz"
-  local checksum_name="${archive_name}.sha256"
-  local archive_url="${release_host}/${repository}/releases/download/${tag_name}/${archive_name}"
-  local checksum_url="${release_host}/${repository}/releases/download/${tag_name}/${checksum_name}"
+  artifact_basename="${binary_name}-${version}-linux-${arch}"
+  archive_name="${artifact_basename}.tar.gz"
+  checksum_name="${archive_name}.sha256"
+  archive_url="${release_host}/${repository}/releases/download/${tag_name}/${archive_name}"
+  checksum_url="${release_host}/${repository}/releases/download/${tag_name}/${checksum_name}"
 
-  local temp_root
   temp_root="$(mktemp -d)"
-  trap 'rm -rf "${temp_root:-}"' EXIT
+  trap cleanup EXIT INT TERM
 
   download_asset "${archive_url}" "${temp_root}/${archive_name}"
   download_asset "${checksum_url}" "${temp_root}/${checksum_name}"
@@ -95,7 +133,7 @@ main() {
     tar -xzf "${archive_name}"
   )
 
-  bash "${temp_root}/${artifact_basename}/install.sh"
+  sh "${temp_root}/${artifact_basename}/install.sh"
 }
 
 main "$@"

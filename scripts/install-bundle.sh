@@ -1,14 +1,14 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-set -euo pipefail
+set -eu
 
-readonly bundle_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly binary_name="omarchy-agent-bar"
-readonly desktop_entry_name="omarchy-agent-bar.desktop"
-readonly app_dir_name="omarchy-agent-bar"
+bundle_root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+binary_name="omarchy-agent-bar"
+desktop_entry_name="omarchy-agent-bar.desktop"
+app_dir_name="omarchy-agent-bar"
 
 resolve_xdg_data_home() {
-  if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+  if [ -n "${XDG_DATA_HOME:-}" ]; then
     printf '%s\n' "${XDG_DATA_HOME}"
     return
   fi
@@ -17,7 +17,7 @@ resolve_xdg_data_home() {
 }
 
 resolve_xdg_config_home() {
-  if [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
     printf '%s\n' "${XDG_CONFIG_HOME}"
     return
   fi
@@ -26,27 +26,24 @@ resolve_xdg_config_home() {
 }
 
 main() {
-  local version_file="${bundle_root}/VERSION"
-  if [[ ! -f "${version_file}" ]]; then
+  version_file="${bundle_root}/VERSION"
+  if [ ! -f "${version_file}" ]; then
     printf 'Bundle is missing VERSION metadata: %s\n' "${version_file}" >&2
     exit 1
   fi
 
-  local version
-  version="$(<"${version_file}")"
+  version="$(cat "${version_file}")"
 
-  local data_home
   data_home="$(resolve_xdg_data_home)"
-  local config_home
   config_home="$(resolve_xdg_config_home)"
-  local bin_dir="${HOME}/.local/bin"
+  bin_dir="${HOME}/.local/bin"
 
-  local app_home="${data_home}/${app_dir_name}"
-  local version_root="${app_home}/${version}"
-  local current_link="${app_home}/current"
-  local launcher_link="${bin_dir}/${binary_name}"
-  local autostart_dir="${config_home}/autostart"
-  local autostart_path="${autostart_dir}/${desktop_entry_name}"
+  app_home="${data_home}/${app_dir_name}"
+  version_root="${app_home}/${version}"
+  current_link="${app_home}/current"
+  launcher_link="${bin_dir}/${binary_name}"
+  autostart_dir="${config_home}/autostart"
+  autostart_path="${autostart_dir}/${desktop_entry_name}"
 
   rm -rf "${version_root}"
   mkdir -p "${version_root}/assets/tray" "${bin_dir}" "${autostart_dir}"
@@ -73,4 +70,4 @@ main() {
   printf '  autostart: %s\n' "${autostart_path}"
 }
 
-main "$@"
+main

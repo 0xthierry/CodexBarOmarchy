@@ -33,30 +33,19 @@ This repository is currently focused on `codex`, `claude`, and `gemini`. It is c
 
 ## Install
 
-### Requirements
-
-- [Bun](https://bun.sh/) 1.3+
-- Omarchy if you want automatic theme pickup
-- Any provider CLIs you want to monitor: `codex`, `claude`, and/or `gemini`
-
-### Setup
+### Release Install
 
 ```bash
-bun install
+curl -fsSL https://raw.githubusercontent.com/0xthierry/CodexBarOmarchy/main/install.sh | sh
 ```
 
-### Local Release Bundle Preview
-
-The first install packaging slice can now build a local release bundle:
+Install a specific release:
 
 ```bash
-bun install
-bun run package:release -- 0.1.0
-tar -xzf dist/release/omarchy-agent-bar-0.1.0-linux-x64.tar.gz -C /tmp
-bash /tmp/omarchy-agent-bar-0.1.0-linux-x64/install.sh
+curl -fsSL https://raw.githubusercontent.com/0xthierry/CodexBarOmarchy/main/install.sh | sh -s -- --version vX.Y.Z
 ```
 
-That installer currently performs a user-local install using:
+The installer downloads the release archive and checksum from GitHub Releases, verifies the checksum, extracts the bundle, and then performs a user-local install using:
 
 - `~/.local/share/omarchy-agent-bar/<version>/`
 - `~/.local/share/omarchy-agent-bar/current`
@@ -65,21 +54,11 @@ That installer currently performs a user-local install using:
 
 It leaves `~/.config/omarchy-agent-bar/config.json` in place on uninstall.
 
-### Release Install
+### Requirements
 
-The repository root now includes a release installer for GitHub-hosted bundles:
-
-```bash
-bash install.sh
-```
-
-To install a specific release instead of `latest`:
-
-```bash
-bash install.sh 0.1.0
-```
-
-That script downloads the versioned release archive and checksum from GitHub Releases, verifies the checksum, extracts the bundle, and then runs the bundled installer.
+- Omarchy if you want automatic theme pickup
+- Any provider CLIs you want to monitor: `codex`, `claude`, and/or `gemini`
+- Standard Linux userland tools used by the installer: `curl`, `sha256sum`, `tar`, `mktemp`, `sh`
 
 ## Usage
 
@@ -120,7 +99,7 @@ The local bundle installer now writes an XDG autostart desktop entry that launch
 ~/.local/bin/omarchy-agent-bar tray
 ```
 
-Release automation is still deferred. The current packaging flow is local-first so the install layout can be proven before wiring GitHub Releases.
+GitHub release automation is wired, and the installer is designed to consume those GitHub-hosted release bundles directly.
 
 ## Configuration
 
@@ -132,6 +111,12 @@ Release automation is still deferred. The current packaging flow is local-first 
 - Override theme path with `OMARCHY_THEME_PATH`
 
 ## Development
+
+Development setup still uses Bun:
+
+```bash
+bun install
+```
 
 ```bash
 bun run test
