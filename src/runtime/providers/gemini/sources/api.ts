@@ -1,14 +1,12 @@
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
+import { createProviderQuotaBucketSnapshot, createRefreshSuccessFromSeed, formatFractionPercent } from '@/runtime/providers/collection/snapshot.ts';
+import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
 import type { GeminiResolvedApiSource } from "@/runtime/providers/gemini/source-plan.ts";
 import { readJwtStringClaim } from "@/runtime/providers/collection/jwt.ts";
 import {
-  createProviderQuotaBucketSnapshot,
   createRefreshError,
-  createRefreshSuccess,
-  createSnapshot,
-  formatFractionPercent,
   isRecord,
   joinPath,
   parseJsonText,
@@ -18,10 +16,8 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
-  withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
-import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
 
 const geminiLoadCodeAssistEndpoint =
   "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
@@ -420,18 +416,6 @@ const parseGeminiQuotaSnapshot = (
       resetTime: bucket.resetTime,
     }),
   );
-  const snapshot = createSnapshot({
-    accountEmail:
-      readString(credentials.rawRecord, "email") ??
-      readJwtEmail(credentials.rawRecord, "id_token") ??
-      readJwtEmail(credentials.rawRecord, "idToken"),
-    metrics,
-    planLabel,
-    quotaBuckets: normalizedQuotaBuckets,
-    sourceLabel: "api",
-    updatedAt,
-    version: readString(isRecord(quotaPayload) ? quotaPayload : {}, "version") ?? version,
-  });
   const quotaDrilldown = {
     flashBuckets: normalizedQuotaBuckets.filter((bucket) =>
       bucket.modelId.toLowerCase().includes("flash"),
@@ -445,15 +429,23 @@ const parseGeminiQuotaSnapshot = (
     ),
   };
 
-  return createRefreshSuccess(
-    "gemini",
-    "Gemini refreshed via API.",
-    withProviderDetails(snapshot, {
+  return createRefreshSuccessFromSeed("gemini", "Gemini refreshed via API.", {
+    accountEmail:
+      readString(credentials.rawRecord, "email") ??
+      readJwtEmail(credentials.rawRecord, "id_token") ??
+      readJwtEmail(credentials.rawRecord, "idToken"),
+    metrics,
+    planLabel,
+    providerDetails: {
       incidents: [],
       kind: "gemini",
       quotaDrilldown,
-    }),
-  );
+    },
+    quotaBuckets: normalizedQuotaBuckets,
+    sourceLabel: "api",
+    updatedAt,
+    version: readString(isRecord(quotaPayload) ? quotaPayload : {}, "version") ?? version,
+  });
 };
 
 const fetchGeminiApiSnapshot = async (

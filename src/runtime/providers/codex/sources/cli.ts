@@ -1,20 +1,17 @@
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeCommandLineSession, RuntimeHost } from "@/runtime/host.ts";
+import { createRefreshSuccessFromSeed, formatPercent } from '@/runtime/providers/collection/snapshot.ts';
+import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
 import type { CodexResolvedCliSource } from "@/runtime/providers/codex/source-plan.ts";
 import {
   createRefreshError,
-  createRefreshSuccess,
-  createSnapshot,
-  formatPercent,
   isRecord,
   parseJsonText,
   readFiniteNumber,
   readNestedRecord,
   readString,
-  withProviderDetails,
 } from "@/runtime/providers/shared.ts";
-import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
 
 const codexAppServerArgs = ["-s", "read-only", "-a", "never", "app-server"] as const;
 const codexRequestTimeoutMs = 15_000;
@@ -164,24 +161,19 @@ const parseCodexCliSnapshot = (
     return createRefreshError("codex", "Codex CLI output did not contain usage metrics.");
   }
 
-  const snapshot = createSnapshot({
+  return createRefreshSuccessFromSeed("codex", "Codex refreshed via CLI.", {
     accountEmail: accountResult.account?.email ?? explicitNull,
     metrics,
     planLabel: accountResult.account?.planType ?? rateLimits?.planType ?? explicitNull,
+    providerDetails: {
+      dashboard: explicitNull,
+      kind: "codex",
+      tokenCost: explicitNull,
+    },
     sourceLabel: "cli",
     updatedAt,
     version,
   });
-
-  return createRefreshSuccess(
-    "codex",
-    "Codex refreshed via CLI.",
-    withProviderDetails(snapshot, {
-      dashboard: explicitNull,
-      kind: "codex",
-      tokenCost: explicitNull,
-    }),
-  );
 };
 
 const fetchCodexCliSnapshot = async (

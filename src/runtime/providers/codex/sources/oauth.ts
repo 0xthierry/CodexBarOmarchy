@@ -1,12 +1,11 @@
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
+import { createRefreshSuccessFromSeed, formatPercent } from '@/runtime/providers/collection/snapshot.ts';
+import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
 import type { CodexResolvedOauthSource } from "@/runtime/providers/codex/source-plan.ts";
 import {
   createRefreshError,
-  createRefreshSuccess,
-  createSnapshot,
-  formatPercent,
   isRecord,
   joinPath,
   parseJsonText,
@@ -15,10 +14,8 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
-  withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
-import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
 
 const codexDefaultBaseUrl = "https://chatgpt.com/backend-api";
 const codexRefreshEndpoint = "https://auth.openai.com/oauth/token";
@@ -408,7 +405,7 @@ const parseCodexOAuthSnapshot = (
 
   const authRecord = authFileRecord.rawRecord;
   const tokenRecord = readNestedRecord(authRecord, "tokens");
-  const snapshot = createSnapshot({
+  return createRefreshSuccessFromSeed("codex", "Codex refreshed via OAuth.", {
     accountEmail:
       usageResponse.email ??
       readString(authRecord, "account_email") ??
@@ -416,20 +413,15 @@ const parseCodexOAuthSnapshot = (
       (tokenRecord ? readJwtEmail(tokenRecord, "id_token") : explicitNull),
     metrics,
     planLabel: usageResponse.planType ?? explicitNull,
+    providerDetails: {
+      dashboard: explicitNull,
+      kind: "codex",
+      tokenCost: explicitNull,
+    },
     sourceLabel: "oauth",
     updatedAt,
     version: usageResponse.version ?? version,
   });
-
-  return createRefreshSuccess(
-    "codex",
-    "Codex refreshed via OAuth.",
-    withProviderDetails(snapshot, {
-      dashboard: explicitNull,
-      kind: "codex",
-      tokenCost: explicitNull,
-    }),
-  );
 };
 
 const fetchCodexOAuthSnapshot = async (

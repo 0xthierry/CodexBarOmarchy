@@ -3,6 +3,7 @@ import type { CodexProviderConfig } from "@/core/providers/codex.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
 import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
+import { applyRefreshEnrichers, updateProviderDetails } from "@/runtime/providers/shared.ts";
 import { resolveCodexWebSession } from "@/runtime/providers/codex-web-auth.ts";
 import { fetchCodexWhamDashboard } from "@/runtime/providers/codex-web-wham.ts";
 import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
@@ -75,18 +76,22 @@ const attachCodexWebDetails = async (
     return {
       ...result,
       snapshot: {
-        ...result.snapshot,
+        ...updateProviderDetails(
+          result.snapshot,
+          "codex",
+          () => ({
+            dashboard: explicitNull,
+            kind: "codex",
+            tokenCost: explicitNull,
+          }),
+          (details) => ({
+            ...details,
+            dashboard,
+          }),
+        ),
         identity: {
           ...result.snapshot.identity,
           accountEmail: result.snapshot.identity.accountEmail ?? webSession.accountEmail,
-        },
-        providerDetails: {
-          dashboard,
-          kind: "codex",
-          tokenCost:
-            result.snapshot.providerDetails?.kind === "codex"
-              ? result.snapshot.providerDetails.tokenCost
-              : explicitNull,
         },
       },
     };
@@ -112,21 +117,21 @@ const attachCodexTokenCost = async (
     return result;
   }
 
-  const existingDetails =
-    result.snapshot.providerDetails?.kind === "codex"
-      ? result.snapshot.providerDetails
-      : explicitNull;
-
   return {
     ...result,
-    snapshot: {
-      ...result.snapshot,
-      providerDetails: {
-        dashboard: existingDetails?.dashboard ?? explicitNull,
+    snapshot: updateProviderDetails(
+      result.snapshot,
+      "codex",
+      () => ({
+        dashboard: explicitNull,
         kind: "codex",
+        tokenCost: explicitNull,
+      }),
+      (details) => ({
+        ...details,
         tokenCost,
-      },
-    },
+      }),
+    ),
   };
 };
 
@@ -135,9 +140,10 @@ const finalizeCodexRefresh = async (
   providerConfig: CodexProviderConfig,
   result: ProviderRefreshActionResult<"codex">,
 ): Promise<ProviderRefreshActionResult<"codex">> =>
-  attachCodexServiceStatus(
-    host,
-    await attachCodexTokenCost(host, await attachCodexWebDetails(host, providerConfig, result)),
-  );
+  applyRefreshEnrichers(result, [
+    (currentResult) => attachCodexWebDetails(host, providerConfig, currentResult),
+    (currentResult) => attachCodexTokenCost(host, currentResult),
+    (currentResult) => attachCodexServiceStatus(host, currentResult),
+  ]);
 
 export { finalizeCodexRefresh };

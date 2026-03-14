@@ -1,6 +1,8 @@
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
+import { createRefreshSuccessFromSeed } from '@/runtime/providers/collection/snapshot.ts';
+import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
 import { resolveClaudeWebSession } from "@/runtime/providers/claude-web-auth.ts";
 import type { ClaudeWebSessionSnapshot } from "@/runtime/providers/claude-web-models.ts";
 import {
@@ -14,16 +16,12 @@ import { claudeTimeoutMs, resolveClaudeVersion } from "@/runtime/providers/claud
 import type { ClaudeResolvedWebSource } from "@/runtime/providers/claude/source-plan.ts";
 import {
   createRefreshError,
-  createRefreshSuccess,
-  createSnapshot,
   isRecord,
   parseJsonText,
   readJsonFile,
   readNestedRecord,
   readString,
-  withProviderDetails,
 } from "@/runtime/providers/shared.ts";
-import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
 
 interface ClaudeWebUsageResponse {
   accountEmail: string | null;
@@ -105,24 +103,19 @@ const createClaudeBrowserWebResult = async (
 ): Promise<ProviderRefreshActionResult<"claude">> => {
   const webUsage = await fetchClaudeWebUsage(host, session);
   const accountOrg = sanitizeClaudeIdentityLabel(session.organizationName, webUsage.accountEmail);
-  const snapshot = createSnapshot({
+  return createRefreshSuccessFromSeed("claude", "Claude refreshed via web session.", {
     accountEmail: webUsage.accountEmail,
     metrics: webUsage.metrics,
     planLabel: normalizeClaudePlanLabel(session.rateLimitTier, webUsage.accountEmail),
+    providerDetails: {
+      accountOrg,
+      kind: "claude",
+      tokenCost: explicitNull,
+    },
     sourceLabel: "web",
     updatedAt,
     version,
   });
-
-  return createRefreshSuccess(
-    "claude",
-    "Claude refreshed via web session.",
-    withProviderDetails(snapshot, {
-      accountOrg,
-      kind: "claude",
-      tokenCost: explicitNull,
-    }),
-  );
 };
 
 const parseClaudeWebSnapshot = (
@@ -138,24 +131,19 @@ const parseClaudeWebSnapshot = (
       readClaudeOrganizationName(tokenPayload),
       accountEmail,
     );
-    const snapshot = createSnapshot({
+    return createRefreshSuccessFromSeed("claude", "Claude refreshed via web session.", {
       accountEmail,
       metrics: webMetrics,
       planLabel,
+      providerDetails: {
+        accountOrg,
+        kind: "claude",
+        tokenCost: explicitNull,
+      },
       sourceLabel: "web",
       updatedAt,
       version: explicitNull,
     });
-
-    return createRefreshSuccess(
-      "claude",
-      "Claude refreshed via web session.",
-      withProviderDetails(snapshot, {
-        accountOrg,
-        kind: "claude",
-        tokenCost: explicitNull,
-      }),
-    );
   }
 
   if (!isRecord(tokenPayload)) {
@@ -180,24 +168,19 @@ const parseClaudeWebSnapshot = (
     readClaudeOrganizationName(tokenPayload, accountRecord),
     accountEmail,
   );
-  const snapshot = createSnapshot({
+  return createRefreshSuccessFromSeed("claude", "Claude refreshed via web session.", {
     accountEmail,
     metrics,
     planLabel,
+    providerDetails: {
+      accountOrg,
+      kind: "claude",
+      tokenCost: explicitNull,
+    },
     sourceLabel: "web",
     updatedAt,
     version: explicitNull,
   });
-
-  return createRefreshSuccess(
-    "claude",
-    "Claude refreshed via web session.",
-    withProviderDetails(snapshot, {
-      accountOrg,
-      kind: "claude",
-      tokenCost: explicitNull,
-    }),
-  );
 };
 
 const refreshClaudeViaWeb = async (

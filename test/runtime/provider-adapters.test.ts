@@ -687,6 +687,26 @@ test("codex attaches web extras when manual cookies are enabled", async () => {
       refresh_token: "codex-refresh-token",
     },
   });
+  await writeJsonl(
+    join(fixture.homeDirectory, ".codex", "sessions", "2026", "03", "08", "usage.jsonl"),
+    [
+      {
+        payload: {
+          info: {
+            last_token_usage: {
+              cached_input_tokens: 10,
+              input_tokens: 50,
+              output_tokens: 25,
+            },
+            model: "gpt-5",
+          },
+          type: "token_count",
+        },
+        timestamp: "2026-03-08T10:01:00.000Z",
+        type: "event_msg",
+      },
+    ],
+  );
 
   const refreshResult = await providerAdapters.codex.refresh({
     config,
@@ -699,6 +719,11 @@ test("codex attaches web extras when manual cookies are enabled", async () => {
   });
 
   expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.serviceStatus).toEqual({
+    description: explicitNull,
+    indicator: "none",
+    updatedAt: "2026-03-08T11:59:00.000Z",
+  });
   expect(refreshResult.snapshot?.providerDetails).toMatchObject({
     dashboard: {
       additionalRateLimits: [
@@ -735,7 +760,23 @@ test("codex attaches web extras when manual cookies are enabled", async () => {
       ],
     },
     kind: "codex",
-    tokenCost: explicitNull,
+    tokenCost: {
+      daily: [
+        {
+          costUsd: 0.000_301,
+          date: "2026-03-08",
+          totalTokens: 85,
+        },
+      ],
+      last30Days: {
+        costUsd: 0.000_301,
+        tokens: 85,
+      },
+      today: {
+        costUsd: 0.000_301,
+        tokens: 85,
+      },
+    },
   });
 });
 

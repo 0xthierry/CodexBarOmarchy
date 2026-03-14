@@ -1,8 +1,17 @@
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeCommandResult, RuntimeHost } from "@/runtime/host.ts";
-import { collectClaudeMetrics, createClaudeOAuthUsageResponse, normalizeClaudePlanLabel, parseClaudeExtraUsage } from '@/runtime/providers/claude/normalize.ts';
-import type { ClaudeOAuthUsageResponse } from '@/runtime/providers/claude/normalize.ts';
+import {
+  createProviderCostSnapshot,
+  createRefreshSuccessFromSeed,
+} from "@/runtime/providers/collection/snapshot.ts";
+import {
+  collectClaudeMetrics,
+  createClaudeOAuthUsageResponse,
+  normalizeClaudePlanLabel,
+  parseClaudeExtraUsage,
+} from "@/runtime/providers/claude/normalize.ts";
+import type { ClaudeOAuthUsageResponse } from "@/runtime/providers/claude/normalize.ts";
 import {
   claudeOAuthRefreshEndpoint,
   claudeOAuthUsageEndpoint,
@@ -13,10 +22,7 @@ import {
 } from "@/runtime/providers/claude/runtime.ts";
 import type { ClaudeResolvedOauthSource } from "@/runtime/providers/claude/source-plan.ts";
 import {
-  createProviderCostSnapshot,
   createRefreshError,
-  createRefreshSuccess,
-  createSnapshot,
   isRecord,
   parseJsonText,
   readBoolean,
@@ -25,7 +31,6 @@ import {
   readJwtEmail,
   readNestedRecord,
   readString,
-  withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
 
@@ -271,7 +276,7 @@ const parseClaudeOAuthSnapshot = (
     return createRefreshError("claude", "Claude OAuth data did not include usage metrics.");
   }
 
-  const snapshot = createSnapshot({
+  return createRefreshSuccessFromSeed("claude", "Claude refreshed via OAuth.", {
     accountEmail,
     metrics,
     planLabel,
@@ -285,20 +290,15 @@ const parseClaudeOAuthSnapshot = (
             updatedAt,
             used: extraUsage.used,
           }),
+    providerDetails: {
+      accountOrg: explicitNull,
+      kind: "claude",
+      tokenCost: explicitNull,
+    },
     sourceLabel: "oauth",
     updatedAt,
     version,
   });
-
-  return createRefreshSuccess(
-    "claude",
-    "Claude refreshed via OAuth.",
-    withProviderDetails(snapshot, {
-      accountOrg: explicitNull,
-      kind: "claude",
-      tokenCost: explicitNull,
-    }),
-  );
 };
 
 const fetchClaudeOAuthSnapshot = async (

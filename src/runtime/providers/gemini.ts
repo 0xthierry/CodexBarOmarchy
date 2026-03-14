@@ -5,7 +5,7 @@ import type {
 } from "@/core/actions/provider-adapter.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
 import { createRefreshError, runResolvedRefresh } from "@/runtime/providers/shared.ts";
-import { attachGeminiWorkspaceStatus } from "@/runtime/providers/gemini/enrich.ts";
+import { finalizeGeminiRefresh } from "@/runtime/providers/gemini/enrich.ts";
 import {
   readGeminiAuthType,
   resolveGeminiOauthPath,
@@ -36,7 +36,7 @@ const createGeminiProviderAdapter = (host: RuntimeHost): GeminiProviderAdapter =
   },
   refresh: async (): Promise<ProviderRefreshActionResult<"gemini">> =>
     runResolvedRefresh({
-      finalizeResult: (result) => attachGeminiWorkspaceStatus(host, result),
+      finalizeResult: (result) => finalizeGeminiRefresh(host, result),
       providerId: "gemini",
       refreshFromResolvedSource: (resolvedSource) =>
         refreshGeminiFromResolvedSource(host, resolvedSource),

@@ -2,6 +2,7 @@ import { explicitNull } from "@/core/providers/shared.ts";
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
 import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
+import { applyRefreshEnrichers, updateProviderDetails } from "@/runtime/providers/shared.ts";
 import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
 
 const claudeStatusPageUrl = "https://status.claude.com";
@@ -55,21 +56,21 @@ const attachClaudeTokenCost = async (
     return result;
   }
 
-  const existingDetails =
-    result.snapshot.providerDetails?.kind === "claude"
-      ? result.snapshot.providerDetails
-      : explicitNull;
-
   return {
     ...result,
-    snapshot: {
-      ...result.snapshot,
-      providerDetails: {
-        accountOrg: existingDetails?.accountOrg ?? explicitNull,
+    snapshot: updateProviderDetails(
+      result.snapshot,
+      "claude",
+      () => ({
+        accountOrg: explicitNull,
         kind: "claude",
+        tokenCost: explicitNull,
+      }),
+      (details) => ({
+        ...details,
         tokenCost,
-      },
-    },
+      }),
+    ),
   };
 };
 
@@ -77,6 +78,9 @@ const finalizeClaudeRefresh = async (
   host: RuntimeHost,
   result: ProviderRefreshActionResult<"claude">,
 ): Promise<ProviderRefreshActionResult<"claude">> =>
-  attachClaudeServiceStatus(host, await attachClaudeTokenCost(host, result));
+  applyRefreshEnrichers(result, [
+    (currentResult) => attachClaudeTokenCost(host, currentResult),
+    (currentResult) => attachClaudeServiceStatus(host, currentResult),
+  ]);
 
 export { finalizeClaudeRefresh };

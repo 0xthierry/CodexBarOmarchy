@@ -1,6 +1,8 @@
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
+import { createRefreshSuccessFromSeed } from '@/runtime/providers/collection/snapshot.ts';
+import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
 import {
   normalizeClaudePlanLabel,
   sanitizeClaudeIdentityLabel,
@@ -11,13 +13,7 @@ import {
   resolveClaudeVersion,
 } from "@/runtime/providers/claude/runtime.ts";
 import type { ClaudeCliSourceHandle } from "@/runtime/providers/claude/source-plan.ts";
-import {
-  createRefreshError,
-  createRefreshSuccess,
-  createSnapshot,
-  withProviderDetails,
-} from "@/runtime/providers/shared.ts";
-import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
+import { createRefreshError } from "@/runtime/providers/shared.ts";
 
 const quoteShellArgument = (value: string): string => `'${value.replaceAll("'", "'\"'\"'")}'`;
 
@@ -557,24 +553,19 @@ const parseClaudeCliSnapshot = (
     return createRefreshError("claude", "Claude CLI output did not contain usage metrics.");
   }
 
-  const snapshot = createSnapshot({
+  return createRefreshSuccessFromSeed("claude", "Claude refreshed via CLI.", {
     accountEmail,
     metrics,
     planLabel,
+    providerDetails: {
+      accountOrg,
+      kind: "claude",
+      tokenCost: explicitNull,
+    },
     sourceLabel: "cli",
     updatedAt,
     version,
   });
-
-  return createRefreshSuccess(
-    "claude",
-    "Claude refreshed via CLI.",
-    withProviderDetails(snapshot, {
-      accountOrg,
-      kind: "claude",
-      tokenCost: explicitNull,
-    }),
-  );
 };
 
 const refreshClaudeViaCli = async (
