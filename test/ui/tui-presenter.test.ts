@@ -125,6 +125,74 @@ test("renders the required shell sections for the selected provider", () => {
   expect(viewModel.menuLines.join("\n")).toContain("settings");
 });
 
+test("renders reset timestamps in local time for provider windows", () => {
+  const config = {
+    ...createDefaultConfig(),
+    selectedProvider: "claude" as const,
+  };
+  const runtimeStateMap = createDefaultProviderRuntimeStateMap();
+
+  runtimeStateMap.claude.snapshot = {
+    identity: {
+      accountEmail: "claude@example.com",
+      planLabel: "Max",
+    },
+    latestError: null,
+    providerDetails: {
+      accountOrg: null,
+      kind: "claude",
+      tokenCost: null,
+    },
+    serviceStatus: null,
+    sourceLabel: "cli",
+    state: "ready",
+    updatedAt: "2026-03-14T03:32:00.000Z",
+    usage: {
+      additional: [],
+      balances: {
+        credits: null,
+      },
+      providerCost: null,
+      quotaBuckets: [],
+      rateWindows: [
+        {
+          label: "Session",
+          resetAt: "2026-03-14T03:33:47.955Z",
+          usedPercent: 0,
+        },
+      ],
+      windows: {
+        flash: null,
+        pro: null,
+        session: {
+          detail: "2026-03-14T03:33:47.955Z",
+          kind: "session",
+          label: "Session",
+          value: "0%",
+        },
+        sonnet: null,
+        weekly: null,
+      },
+    },
+    version: "2.1.75",
+  };
+
+  const viewModel = createTuiViewModel(
+    createAppStoreState(config, runtimeStateMap),
+    createInitialLocalState(),
+    new Date("2026-03-14T03:32:30.000Z"),
+  );
+  const expectedResetLabel = `Resets today ${new Date(
+    "2026-03-14T03:33:47.955Z",
+  ).toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+
+  expect(viewModel.usageLines.join("\n")).toContain(expectedResetLabel);
+  expect(viewModel.usageLines.join("\n")).not.toContain("America/Sao_Paulo");
+});
+
 test("masks account emails for screenshot-safe display", () => {
   expect(maskEmailAddress("thierry@gmail.com")).toBe("thi****ry@gmail.com");
   expect(maskEmailAddress("asdfds1234@gmail.com")).toBe("asd****34@gmail.com");

@@ -68,6 +68,58 @@ interface HostFixture {
 const cleanupPaths: string[] = [];
 const updatedAt = "2026-03-08T12:00:00.000Z";
 const fakeBinaryPath = (binaryName: string): string => `test-bin/${binaryName}`;
+const claudeCliStatusProbeCommand = `sh -lc setsid sh -lc '{ printf '"'"'/status\\r'"'"'; sleep 1; printf '"'"'\\r'"'"'; sleep 1; printf '"'"'\\r'"'"'; sleep 1; printf '"'"'\\r'"'"'; } | script -qefc '"'"'test-bin/claude --allowed-tools ""'"'"' /dev/null' & pid=$!; { sleep 10; kill -TERM -- -"$pid" 2>/dev/null || true; } & sleeper=$!; wait "$pid" || true; kill "$sleeper" 2>/dev/null || true`;
+const claudeCliUsageProbeCommand = `sh -lc setsid sh -lc '{ printf '"'"'/usage\\r'"'"'; sleep 1; printf '"'"'\\r'"'"'; sleep 1; printf '"'"'\\r'"'"'; } | script -qefc '"'"'test-bin/claude --allowed-tools ""'"'"' /dev/null' & pid=$!; { sleep 18; kill -TERM -- -"$pid" 2>/dev/null || true; } & sleeper=$!; wait "$pid" || true; kill "$sleeper" 2>/dev/null || true`;
+const claudeCliStatusOutput = [
+  "Version: 2.1.75",
+  "Login method: Claude Max Account",
+  "Organization: Claude Team",
+  "Email: claude@example.com",
+].join("\n");
+const claudeCliUsageOutput = [
+  "Current session",
+  "21% used",
+  "Resets 12:59am (America/Sao_Paulo)",
+  "",
+  "Current week (all models)",
+  "42% used",
+  "Resets 10am (America/Sao_Paulo)",
+  "",
+  "Current week (Sonnet only)",
+  "58% used",
+  "Resets Mar 16, 8am (America/Sao_Paulo)",
+].join("\n");
+const claudeCliCompactStatusOutput = [
+  "Versin: 2.1.75",
+  "Loginmethod:ClaudeMaxAccount",
+  "Organization:ClaudeTeam",
+  "Email:claude@example.com",
+].join("\n");
+const claudeCliCompactUsageOutput = [
+  "Curretsession",
+  "0%used",
+  "Reses1m (America/Sao_Paulo)",
+  "",
+  "Currentweek(allmodels)",
+  "24%used",
+  "Resets10am(America/Sao_Paulo)",
+  "",
+  "Currentweek(Sonnetonly)",
+  "4%used",
+  "ResetsMar16,8am(America/Sao_Paulo)",
+].join("\n");
+const claudeCliUsageWithoutSessionResetOutput = [
+  "Current session",
+  "0%used",
+  "",
+  "Currentweek(allmodels)",
+  "24%used",
+  "Resets10am(America/Sao_Paulo)",
+  "",
+  "Currentweek(Sonnetonly)",
+  "4%used",
+  "ResetsMar16,8am(America/Sao_Paulo)",
+].join("\n");
 
 const createConfig = (): ReturnType<typeof createDefaultConfig> => createDefaultConfig();
 
@@ -1268,11 +1320,20 @@ test("claude auto falls back to cli when oauth refresh fails", async () => {
   const config = createConfig();
   const fixture = await createHostFixture({
     commands: {
-      claude: {
+      [claudeCliStatusProbeCommand]: {
+        exitCode: 128,
+        stderr: "",
+        stdout: claudeCliStatusOutput.replaceAll("claude@example.com", "cli@example.com"),
+      },
+      [claudeCliUsageProbeCommand]: {
+        exitCode: 128,
+        stderr: "",
+        stdout: claudeCliUsageOutput,
+      },
+      "claude --version": {
         exitCode: 0,
         stderr: "",
-        stdout:
-          "Account: cli@example.com\nOrg: Max Plan\nCurrent session 21%\nCurrent week (all models) 42%\nCurrent week (Sonnet) 58%\n",
+        stdout: "2.1.75 (Claude Code)\n",
       },
     },
     httpResponses: {
@@ -1287,6 +1348,7 @@ test("claude auto falls back to cli when oauth refresh fails", async () => {
     },
     which: {
       claude: fakeBinaryPath("claude"),
+      script: fakeBinaryPath("script"),
     },
   });
   const credentialsPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
@@ -1309,21 +1371,32 @@ test("claude auto falls back to cli when oauth refresh fails", async () => {
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("cli@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max");
 });
 
 test("claude auto prefers the cli fallback before the web session fallback", async () => {
   const config = createConfig();
   const fixture = await createHostFixture({
     commands: {
-      claude: {
+      [claudeCliStatusProbeCommand]: {
+        exitCode: 128,
+        stderr: "",
+        stdout: claudeCliStatusOutput,
+      },
+      [claudeCliUsageProbeCommand]: {
+        exitCode: 128,
+        stderr: "",
+        stdout: claudeCliUsageOutput,
+      },
+      "claude --version": {
         exitCode: 0,
         stderr: "",
-        stdout:
-          "Account: claude@example.com\nOrg: Max Plan\nCurrent session 21%\nCurrent week (all models) 42%\nCurrent week (Sonnet) 58%\n",
+        stdout: "2.1.75 (Claude Code)\n",
       },
     },
     which: {
       claude: fakeBinaryPath("claude"),
+      script: fakeBinaryPath("script"),
     },
   });
   const providerAdapters = createRuntimeProviderAdapters(fixture.host);
@@ -1346,9 +1419,9 @@ test("claude auto prefers the cli fallback before the web session fallback", asy
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
-  expect(refreshResult.snapshot?.identity.planLabel).toBeNull();
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max");
   expect(refreshResult.snapshot?.providerDetails).toMatchObject({
-    accountOrg: "Max Plan",
+    accountOrg: "Claude Team",
     kind: "claude",
   });
 });
@@ -1357,15 +1430,30 @@ test("claude cli snapshot ignores email-like org values for plan and org details
   const config = createConfig();
   const fixture = await createHostFixture({
     commands: {
-      claude: {
+      [claudeCliStatusProbeCommand]: {
+        exitCode: 128,
+        stderr: "",
+        stdout: [
+          "Version: 2.1.75",
+          "Login method: Claude Max Account",
+          "Organization: claude@example.com",
+          "Email: claude@example.com",
+        ].join("\n"),
+      },
+      [claudeCliUsageProbeCommand]: {
+        exitCode: 128,
+        stderr: "",
+        stdout: `${claudeCliUsageOutput}\nOrganization: claude@example.com\nEmail: claude@example.com`,
+      },
+      "claude --version": {
         exitCode: 0,
         stderr: "",
-        stdout:
-          "Account: claude@example.com\nOrg: claude@example.com\nCurrent session 21%\nCurrent week (all models) 42%\nCurrent week (Sonnet) 58%\n",
+        stdout: "2.1.75 (Claude Code)\n",
       },
     },
     which: {
       claude: fakeBinaryPath("claude"),
+      script: fakeBinaryPath("script"),
     },
   });
   const providerAdapters = createRuntimeProviderAdapters(fixture.host);
@@ -1378,11 +1466,133 @@ test("claude cli snapshot ignores email-like org values for plan and org details
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
-  expect(refreshResult.snapshot?.identity.planLabel).toBeNull();
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max");
   expect(refreshResult.snapshot?.providerDetails).toMatchObject({
     accountOrg: null,
     kind: "claude",
   });
+});
+
+test("claude cli snapshot parses compact PTY output from the real terminal", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture({
+    commands: {
+      [claudeCliStatusProbeCommand]: {
+        exitCode: 0,
+        stderr: "",
+        stdout: claudeCliCompactStatusOutput,
+      },
+      [claudeCliUsageProbeCommand]: {
+        exitCode: 0,
+        stderr: "",
+        stdout: claudeCliCompactUsageOutput,
+      },
+      "claude --version": {
+        exitCode: 0,
+        stderr: "",
+        stdout: "2.1.75 (Claude Code)\n",
+      },
+    },
+    which: {
+      claude: fakeBinaryPath("claude"),
+      script: fakeBinaryPath("script"),
+    },
+  });
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: {
+      ...config.providers.claude,
+      source: "cli",
+    },
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("claude@example.com");
+  expect(refreshResult.snapshot?.identity.planLabel).toBe("Max");
+  expect(refreshResult.snapshot?.providerDetails).toMatchObject({
+    accountOrg: "ClaudeTeam",
+    kind: "claude",
+  });
+  expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
+    {
+      detail: null,
+      kind: "session",
+      label: "Session",
+      value: "0%",
+    },
+    {
+      detail: "2026-03-08T13:00:00.000Z",
+      kind: "weekly",
+      label: "Weekly",
+      value: "24%",
+    },
+    {
+      detail: "2026-03-16T11:00:00.000Z",
+      kind: "sonnet",
+      label: "Sonnet",
+      value: "4%",
+    },
+  ]);
+});
+
+test("claude cli snapshot keeps the session metric when no session reset line is present", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture({
+    commands: {
+      [claudeCliStatusProbeCommand]: {
+        exitCode: 0,
+        stderr: "",
+        stdout: claudeCliCompactStatusOutput,
+      },
+      [claudeCliUsageProbeCommand]: {
+        exitCode: 0,
+        stderr: "",
+        stdout: claudeCliUsageWithoutSessionResetOutput,
+      },
+      "claude --version": {
+        exitCode: 0,
+        stderr: "",
+        stdout: "2.1.75 (Claude Code)\n",
+      },
+    },
+    which: {
+      claude: fakeBinaryPath("claude"),
+      script: fakeBinaryPath("script"),
+    },
+  });
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: {
+      ...config.providers.claude,
+      source: "cli",
+    },
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot && getProviderSnapshotMetrics(refreshResult.snapshot)).toEqual([
+    {
+      detail: null,
+      kind: "session",
+      label: "Session",
+      value: "0%",
+    },
+    {
+      detail: "2026-03-08T13:00:00.000Z",
+      kind: "weekly",
+      label: "Weekly",
+      value: "24%",
+    },
+    {
+      detail: "2026-03-16T11:00:00.000Z",
+      kind: "sonnet",
+      label: "Sonnet",
+      value: "4%",
+    },
+  ]);
 });
 
 test("claude auto falls back to the web snapshot when cli and local fallbacks both fail", async () => {
@@ -1830,10 +2040,15 @@ test("claude cli source fails when slash status output does not include usage me
   const config = createConfig();
   const fixture = await createHostFixture({
     commands: {
-      claude: {
-        exitCode: 0,
+      [claudeCliStatusProbeCommand]: {
+        exitCode: 128,
         stderr: "",
         stdout: "Unknown skill: status\n",
+      },
+      [claudeCliUsageProbeCommand]: {
+        exitCode: 128,
+        stderr: "",
+        stdout: "Failed to load usage data\n",
       },
       "claude --version": {
         exitCode: 0,
@@ -1843,6 +2058,7 @@ test("claude cli source fails when slash status output does not include usage me
     },
     which: {
       claude: fakeBinaryPath("claude"),
+      script: fakeBinaryPath("script"),
     },
   });
   const providerAdapters = createRuntimeProviderAdapters(fixture.host);
@@ -1859,7 +2075,7 @@ test("claude cli source fails when slash status output does not include usage me
   expect(refreshResult.message).toBe("Claude CLI output did not contain usage metrics.");
   expect(
     fixture.commandRuns.map((record) => createCommandKey(record.command, record.args)),
-  ).toEqual(["claude", "claude --version"]);
+  ).toEqual(["claude --version", claudeCliUsageProbeCommand, claudeCliStatusProbeCommand]);
 });
 
 test("claude returns a refresh error when the oauth usage request throws", async () => {
