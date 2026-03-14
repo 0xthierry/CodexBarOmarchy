@@ -5,16 +5,34 @@ import type {
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
-import { createProviderQuotaBucketSnapshot, createRefreshError, createRefreshSuccess, createSnapshot, formatFractionPercent, isRecord, joinPath, parseJsonText, readCommandVersion, readFiniteNumber, readJsonFile, readJwtEmail, readNestedRecord, readString, runResolvedRefresh, withProviderDetails, writeJsonFile } from '@/runtime/providers/shared.ts';
-import type { ProviderMetricInput } from '@/runtime/providers/shared.ts';
-import { tryFetchWorkspaceStatusBundle } from "@/runtime/providers/service-status.ts";
+import {
+  createProviderQuotaBucketSnapshot,
+  createRefreshError,
+  createRefreshSuccess,
+  createSnapshot,
+  formatFractionPercent,
+  isRecord,
+  joinPath,
+  parseJsonText,
+  readCommandVersion,
+  readFiniteNumber,
+  readJsonFile,
+  readJwtEmail,
+  readNestedRecord,
+  readString,
+  runResolvedRefresh,
+  withProviderDetails,
+  writeJsonFile,
+} from "@/runtime/providers/shared.ts";
+import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
+import { readJwtStringClaim } from "@/runtime/providers/collection/jwt.ts";
+import { attachGeminiWorkspaceStatus } from "@/runtime/providers/gemini/enrich.ts";
 
 const geminiLoadCodeAssistEndpoint =
   "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
 const geminiProjectListEndpoint = "https://cloudresourcemanager.googleapis.com/v1/projects";
 const geminiQuotaEndpoint = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota";
 const geminiRefreshEndpoint = "https://oauth2.googleapis.com/token";
-const geminiStatusWorkspaceProductId = "npdyhgECDJ6tB66MxXyo";
 const geminiTimeoutMs = 15_000;
 const oauthClientFileCandidates = [
   "../gemini-cli-core/dist/src/code_assist/oauth2.js",
@@ -467,30 +485,11 @@ const parseGeminiQuotaSnapshot = (
   );
 };
 
-const readJwtHostedDomain = (record: Record<string, unknown>): string | null => {
-  const token = readString(record, "id_token") ?? readString(record, "idToken") ?? explicitNull;
-
-  if (token === null) {
-    return explicitNull;
-  }
-
-  const payload = token.split(".")[1];
-
-  if (typeof payload !== "string" || payload === "") {
-    return explicitNull;
-  }
-
-  const normalizedPayload = payload.replaceAll("-", "+").replaceAll("_", "/");
-  const paddedPayload = `${normalizedPayload}${"=".repeat((4 - (normalizedPayload.length % 4)) % 4)}`;
-
-  try {
-    const decodedPayload = JSON.parse(atob(paddedPayload)) as unknown;
-
-    return isRecord(decodedPayload) ? readString(decodedPayload, "hd") : explicitNull;
-  } catch {
-    return explicitNull;
-  }
-};
+const readJwtHostedDomain = (record: Record<string, unknown>): string | null => (
+    readJwtStringClaim(record, "id_token", "hd") ??
+    readJwtStringClaim(record, "idToken", "hd") ??
+    explicitNull
+  );
 
 const fetchGeminiApiSnapshot = async (
   host: RuntimeHost,
@@ -615,32 +614,6 @@ const fetchGeminiApiSnapshot = async (
   };
 
   return fetchQuotaSnapshot(credentials, true);
-};
-
-const attachGeminiWorkspaceStatus = async (
-  host: RuntimeHost,
-  result: ProviderRefreshActionResult<"gemini">,
-): Promise<ProviderRefreshActionResult<"gemini">> => {
-  if (result.snapshot === null) {
-    return result;
-  }
-
-  const workspaceStatus = await tryFetchWorkspaceStatusBundle(host, geminiStatusWorkspaceProductId);
-
-  return {
-    ...result,
-    snapshot: {
-      ...result.snapshot,
-      providerDetails:
-        result.snapshot.providerDetails?.kind === "gemini"
-          ? {
-              ...result.snapshot.providerDetails,
-              incidents: workspaceStatus.incidents,
-            }
-          : result.snapshot.providerDetails,
-      serviceStatus: workspaceStatus.serviceStatus,
-    },
-  };
 };
 
 const refreshGeminiFromResolvedSource = async (

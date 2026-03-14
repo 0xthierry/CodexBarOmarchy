@@ -8,9 +8,9 @@ import type {
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeCommandResult, RuntimeHost } from "@/runtime/host.ts";
-import { fetchTokenCostSnapshot } from "@/runtime/cost/fetcher.ts";
 import { resolveClaudeWebSession } from "@/runtime/providers/claude-web-auth.ts";
 import type { ClaudeWebSessionSnapshot } from "@/runtime/providers/claude-web-models.ts";
+import { finalizeClaudeRefresh } from "@/runtime/providers/claude/enrich.ts";
 import {
   createProviderCostSnapshot,
   createRefreshError,
@@ -31,7 +31,6 @@ import {
   withProviderDetails,
   writeJsonFile,
 } from "@/runtime/providers/shared.ts";
-import { tryFetchProviderServiceStatus } from "@/runtime/providers/service-status.ts";
 import type { ProviderMetricInput } from "@/runtime/providers/shared.ts";
 
 const claudeOAuthRefreshEndpoint = "https://platform.claude.com/v1/oauth/token";
@@ -42,7 +41,6 @@ const claudeCliStatusTimeoutMs = 10_000;
 const claudeTokenFileNames = ["session-token.json", "session.json"] as const;
 const fallbackClaudeCodeVersion = "2.1.0";
 const oauthUsageBetaHeader = "oauth-2025-04-20";
-const claudeStatusPageUrl = "https://status.claude.com";
 
 type ClaudeResolvedSource = "cli" | "oauth" | "web";
 
@@ -689,18 +687,6 @@ const runClaudeCliProbe = async (
   }
 
   return "";
-};
-
-const tryFetchClaudeTokenCost = async (host: RuntimeHost) => {
-  try {
-    return await fetchTokenCostSnapshot("claude", {
-      env: host.env,
-      homeDirectory: host.homeDirectory,
-      now: host.now(),
-    });
-  } catch {
-    return explicitNull;
-  }
 };
 
 const isProviderMetricInput = (value: unknown): value is ProviderMetricInput => {
@@ -1530,67 +1516,6 @@ const resolveClaudeSource = async (
 
   return explicitNull;
 };
-
-const attachClaudeServiceStatus = async (
-  host: RuntimeHost,
-  result: ProviderRefreshActionResult<"claude">,
-): Promise<ProviderRefreshActionResult<"claude">> => {
-  if (result.snapshot === null) {
-    return result;
-  }
-
-  return {
-    ...result,
-    snapshot: {
-      ...result.snapshot,
-      serviceStatus: await tryFetchProviderServiceStatus(host, {
-        baseUrl: claudeStatusPageUrl,
-        kind: "statuspage",
-      }),
-    },
-  };
-};
-
-const attachClaudeTokenCost = async (
-  host: RuntimeHost,
-  result: ProviderRefreshActionResult<"claude">,
-): Promise<ProviderRefreshActionResult<"claude">> => {
-  if (result.snapshot === null) {
-    return result;
-  }
-
-  const tokenCost = await tryFetchClaudeTokenCost(host);
-
-  if (
-    tokenCost === null ||
-    (tokenCost.daily.length === 0 && tokenCost.today === null && tokenCost.last30Days === null)
-  ) {
-    return result;
-  }
-
-  const existingDetails =
-    result.snapshot.providerDetails?.kind === "claude"
-      ? result.snapshot.providerDetails
-      : explicitNull;
-
-  return {
-    ...result,
-    snapshot: {
-      ...result.snapshot,
-      providerDetails: {
-        accountOrg: existingDetails?.accountOrg ?? explicitNull,
-        kind: "claude",
-        tokenCost,
-      },
-    },
-  };
-};
-
-const finalizeClaudeRefresh = async (
-  host: RuntimeHost,
-  result: ProviderRefreshActionResult<"claude">,
-): Promise<ProviderRefreshActionResult<"claude">> =>
-  attachClaudeServiceStatus(host, await attachClaudeTokenCost(host, result));
 
 const refreshClaudeViaCli = async (
   host: RuntimeHost,
