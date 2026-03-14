@@ -7,6 +7,8 @@ import type { CodexProviderConfig } from "@/core/providers/codex.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeCommandLineSession, RuntimeHost } from "@/runtime/host.ts";
 import { finalizeCodexRefresh } from "@/runtime/providers/codex/enrich.ts";
+import { resolveCodexAuthPath, resolveCodexSource } from '@/runtime/providers/codex/source-plan.ts';
+import type { CodexResolvedCliSource, CodexResolvedOauthSource, CodexResolvedSource } from '@/runtime/providers/codex/source-plan.ts';
 import {
   createRefreshError,
   createRefreshSuccess,
@@ -32,8 +34,6 @@ const codexRefreshEndpoint = "https://auth.openai.com/oauth/token";
 const codexRequestTimeoutMs = 15_000;
 const codexTrustedUsageHosts = new Set(["chat.openai.com", "chatgpt.com"]);
 const codexUsageApiPath = "/wham/usage";
-
-type CodexResolvedSource = "cli" | "oauth";
 
 interface CodexAppServerAccountResult {
   account?: {
@@ -78,16 +78,6 @@ interface CodexUsageResponse {
   rateLimit?: Record<string, unknown> | null;
   version?: string | null;
 }
-
-const resolveCodexAuthPath = (host: RuntimeHost): string => {
-  const configuredCodexHome = host.env["CODEX_HOME"];
-
-  if (typeof configuredCodexHome === "string" && configuredCodexHome !== "") {
-    return joinPath(configuredCodexHome, "auth.json");
-  }
-
-  return joinPath(host.homeDirectory, ".codex", "auth.json");
-};
 
 const resolveCodexConfigPath = (host: RuntimeHost): string => {
   const configuredCodexHome = host.env["CODEX_HOME"];
@@ -480,8 +470,9 @@ const parseCodexOAuthSnapshot = (
 
 const fetchCodexOAuthSnapshot = async (
   host: RuntimeHost,
+  resolvedSource: CodexResolvedOauthSource,
 ): Promise<ProviderRefreshActionResult<"codex">> => {
-  const authPayload = await readJsonFile(host, resolveCodexAuthPath(host));
+  const authPayload = await readJsonFile(host, resolvedSource.authPath);
 
   if (authPayload.status !== "ok") {
     return createRefreshError("codex", "Codex auth.json could not be read.");
@@ -742,6 +733,7 @@ const parseCodexCliSnapshot = (
 
 const fetchCodexCliSnapshot = async (
   host: RuntimeHost,
+  _resolvedSource: CodexResolvedCliSource,
 ): Promise<ProviderRefreshActionResult<"codex">> => {
   const session = await host.commands.createLineSession("codex", [...codexAppServerArgs]);
 
@@ -798,52 +790,26 @@ const fetchCodexCliSnapshot = async (
   }
 };
 
-const resolveCodexSource = async (
-  host: RuntimeHost,
-  selectedSource: "auto" | "cli" | "oauth",
-): Promise<CodexResolvedSource | null> => {
-  const hasOauth = await host.fileSystem.fileExists(resolveCodexAuthPath(host));
-  const hasCli = (await host.commands.which("codex")) !== null;
-
-  if (selectedSource === "oauth") {
-    return hasOauth ? "oauth" : explicitNull;
-  }
-
-  if (selectedSource === "cli") {
-    return hasCli ? "cli" : explicitNull;
-  }
-
-  if (hasOauth) {
-    return "oauth";
-  }
-
-  if (hasCli) {
-    return "cli";
-  }
-
-  return explicitNull;
-};
-
 const refreshCodexFromResolvedSource = async (
   host: RuntimeHost,
   resolvedSource: CodexResolvedSource,
   providerConfig: CodexProviderConfig,
 ): Promise<ProviderRefreshActionResult<"codex">> => {
-  if (resolvedSource === "oauth") {
-    const oauthResult = await fetchCodexOAuthSnapshot(host);
+  if (resolvedSource.kind === "oauth") {
+    const oauthResult = await fetchCodexOAuthSnapshot(host, resolvedSource);
 
     if (providerConfig.source !== "auto" || oauthResult.status !== "error") {
       return oauthResult;
     }
 
-    if ((await host.commands.which("codex")) === null) {
+    if (resolvedSource.fallbackCli === null) {
       return oauthResult;
     }
 
-    return fetchCodexCliSnapshot(host);
+    return fetchCodexCliSnapshot(host, resolvedSource.fallbackCli);
   }
 
-  return fetchCodexCliSnapshot(host);
+  return fetchCodexCliSnapshot(host, resolvedSource);
 };
 
 const createCodexProviderAdapter = (host: RuntimeHost): CodexProviderAdapter => ({

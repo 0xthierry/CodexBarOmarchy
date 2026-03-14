@@ -11,6 +11,8 @@ import type { RuntimeCommandResult, RuntimeHost } from "@/runtime/host.ts";
 import { resolveClaudeWebSession } from "@/runtime/providers/claude-web-auth.ts";
 import type { ClaudeWebSessionSnapshot } from "@/runtime/providers/claude-web-models.ts";
 import { finalizeClaudeRefresh } from "@/runtime/providers/claude/enrich.ts";
+import { resolveClaudeDefaultTokenFilePath, resolveClaudeOauthPath, resolveClaudeSource, resolveClaudeTokenFilePath, resolveClaudeWebSource } from '@/runtime/providers/claude/source-plan.ts';
+import type { ClaudeCliSourceHandle, ClaudeResolvedSource, ClaudeResolvedWebSource } from '@/runtime/providers/claude/source-plan.ts';
 import {
   createProviderCostSnapshot,
   createRefreshError,
@@ -18,7 +20,6 @@ import {
   createSnapshot,
   formatPercent,
   isRecord,
-  joinPath,
   parseJsonText,
   readBoolean,
   readCommandVersion,
@@ -38,11 +39,8 @@ const claudeOAuthUsageEndpoint = "https://api.anthropic.com/api/oauth/usage";
 const claudeTimeoutMs = 8000;
 const claudeCliUsageTimeoutMs = 18_000;
 const claudeCliStatusTimeoutMs = 10_000;
-const claudeTokenFileNames = ["session-token.json", "session.json"] as const;
 const fallbackClaudeCodeVersion = "2.1.0";
 const oauthUsageBetaHeader = "oauth-2025-04-20";
-
-type ClaudeResolvedSource = "cli" | "oauth" | "web";
 
 interface ClaudeProviderConfig {
   activeTokenAccountIndex: number;
@@ -718,12 +716,6 @@ const readProviderMetrics = (
   return metrics.every((metric) => isProviderMetricInput(metric)) ? metrics : explicitNull;
 };
 
-const resolveClaudeOauthPath = (host: RuntimeHost): string =>
-  joinPath(host.homeDirectory, ".claude", ".credentials.json");
-
-const resolveClaudeDefaultTokenFilePath = (host: RuntimeHost): string =>
-  joinPath(host.homeDirectory, ".claude", claudeTokenFileNames[0]);
-
 const resolveClaudeBinaryPath = async (host: RuntimeHost): Promise<string | null> => {
   const binaryPath = await host.commands.which("claude");
 
@@ -759,18 +751,6 @@ const resolveClaudeOAuthClientId = async (host: RuntimeHost): Promise<string> =>
   }
 
   return clientId;
-};
-
-const resolveClaudeTokenFilePath = async (host: RuntimeHost): Promise<string | null> => {
-  for (const fileName of claudeTokenFileNames) {
-    const filePath = joinPath(host.homeDirectory, ".claude", fileName);
-
-    if (await host.fileSystem.fileExists(filePath)) {
-      return filePath;
-    }
-  }
-
-  return explicitNull;
 };
 
 const resolveClaudeVersion = async (host: RuntimeHost): Promise<string | null> =>
@@ -1050,51 +1030,6 @@ const createClaudeOAuthUsageResponse = (value: unknown): ClaudeOAuthUsageRespons
   };
 };
 
-const getActiveClaudeSessionToken = (providerConfig: {
-  activeTokenAccountIndex: number;
-  cookieSource: "auto" | "manual";
-  tokenAccounts: {
-    label: string;
-    token: string;
-  }[];
-}): string | null => {
-  const activeTokenAccount = providerConfig.tokenAccounts[providerConfig.activeTokenAccountIndex];
-  const sessionToken = activeTokenAccount?.token.trim();
-
-  if (typeof sessionToken === "string" && sessionToken !== "") {
-    return sessionToken;
-  }
-
-  return explicitNull;
-};
-
-const hasClaudeWebSession = async (
-  host: RuntimeHost,
-  providerConfig: {
-    activeTokenAccountIndex: number;
-    cookieSource: "auto" | "manual";
-    tokenAccounts: {
-      label: string;
-      token: string;
-    }[];
-  },
-): Promise<boolean> => {
-  if (providerConfig.cookieSource === "manual") {
-    return getActiveClaudeSessionToken(providerConfig) !== null;
-  }
-
-  if ((await resolveClaudeTokenFilePath(host)) !== null) {
-    return true;
-  }
-
-  return (
-    (await resolveClaudeWebSession(host, {
-      cookieSource: "auto",
-      manualSessionToken: explicitNull,
-    })) !== null
-  );
-};
-
 const fetchClaudeWebUsage = async (
   host: RuntimeHost,
   session: ClaudeWebSessionSnapshot,
@@ -1348,8 +1283,9 @@ const parseClaudeWebSnapshot = (
 
 const fetchClaudeOAuthSnapshot = async (
   host: RuntimeHost,
+  resolvedSource: { oauthPath: string },
 ): Promise<ProviderRefreshActionResult<"claude">> => {
-  const credentialsPayload = await readJsonFile(host, resolveClaudeOauthPath(host));
+  const credentialsPayload = await readJsonFile(host, resolvedSource.oauthPath);
 
   if (credentialsPayload.status !== "ok") {
     return createRefreshError("claude", "Claude OAuth credentials could not be read.");
@@ -1459,89 +1395,26 @@ const fetchClaudeOAuthSnapshot = async (
   return fetchUsage(credentials.accessToken, true);
 };
 
-const resolveClaudeSource = async (
-  host: RuntimeHost,
-  selectedSource: "auto" | "cli" | "oauth" | "web",
-  providerConfig: {
-    activeTokenAccountIndex: number;
-    cookieSource: "auto" | "manual";
-    tokenAccounts: {
-      label: string;
-      token: string;
-    }[];
-  },
-): Promise<ClaudeResolvedSource | null> => {
-  const hasOauth = await host.fileSystem.fileExists(resolveClaudeOauthPath(host));
-  const hasCli = (await host.commands.which("claude")) !== null;
-
-  if (selectedSource === "oauth") {
-    return hasOauth ? "oauth" : explicitNull;
-  }
-
-  if (selectedSource === "cli") {
-    return hasCli ? "cli" : explicitNull;
-  }
-
-  if (selectedSource === "web") {
-    let hasWeb = false;
-
-    try {
-      hasWeb = await hasClaudeWebSession(host, providerConfig);
-    } catch {
-      hasWeb = false;
-    }
-
-    return hasWeb ? "web" : explicitNull;
-  }
-
-  if (hasOauth) {
-    return "oauth";
-  }
-
-  if (hasCli) {
-    return "cli";
-  }
-
-  let hasWeb = false;
-
-  try {
-    hasWeb = await hasClaudeWebSession(host, providerConfig);
-  } catch {
-    hasWeb = false;
-  }
-
-  if (hasWeb) {
-    return "web";
-  }
-
-  return explicitNull;
-};
-
 const refreshClaudeViaCli = async (
   host: RuntimeHost,
+  resolvedSource: ClaudeCliSourceHandle,
 ): Promise<ProviderRefreshActionResult<"claude">> => {
-  const claudeBinaryPath = await host.commands.which("claude");
-  const scriptBinaryPath = await host.commands.which("script");
   const version = await resolveClaudeVersion(host);
 
-  if (claudeBinaryPath === null) {
-    return createRefreshError("claude", "Claude CLI is unavailable.");
-  }
-
-  if (scriptBinaryPath === null) {
+  if (resolvedSource.scriptBinaryPath === null) {
     return createRefreshError("claude", "Claude CLI PTY probing requires the script command.");
   }
 
   try {
     const usageOutput = await runClaudeCliProbe(
       host,
-      claudeBinaryPath,
+      resolvedSource.claudeBinaryPath,
       "/usage",
       claudeCliUsageTimeoutMs,
     );
     const statusOutput = await runClaudeCliProbe(
       host,
-      claudeBinaryPath,
+      resolvedSource.claudeBinaryPath,
       "/status",
       claudeCliStatusTimeoutMs,
     );
@@ -1596,15 +1469,15 @@ const createClaudeBrowserWebResult = async (
 
 const refreshClaudeViaWeb = async (
   host: RuntimeHost,
-  providerConfig: ClaudeProviderConfig,
+  resolvedSource: ClaudeResolvedWebSource,
 ): Promise<ProviderRefreshActionResult<"claude">> => {
   const updatedAt = host.now().toISOString();
   const version = await resolveClaudeVersion(host);
 
-  if (providerConfig.cookieSource === "manual") {
+  if (resolvedSource.kind === "manual-session-token") {
     const manualSession = await resolveClaudeWebSession(host, {
       cookieSource: "manual",
-      manualSessionToken: getActiveClaudeSessionToken(providerConfig),
+      manualSessionToken: resolvedSource.sessionToken,
     });
 
     if (manualSession === null) {
@@ -1622,26 +1495,19 @@ const refreshClaudeViaWeb = async (
     }
   }
 
-  try {
-    const autoSession = await resolveClaudeWebSession(host, {
-      cookieSource: "auto",
-      manualSessionToken: explicitNull,
-    });
+  if (resolvedSource.kind === "browser-session") {
+    try {
+      return await createClaudeBrowserWebResult(host, resolvedSource.session, updatedAt, version);
+    } catch (error) {
+      if (error instanceof Error) {
+        return createRefreshError("claude", error.message);
+      }
 
-    if (autoSession !== null) {
-      return await createClaudeBrowserWebResult(host, autoSession, updatedAt, version);
+      return createRefreshError("claude", "Claude web session refresh failed.");
     }
-  } catch {
-    // Fall through to the legacy token-file path.
   }
 
-  const tokenFilePath = await resolveClaudeTokenFilePath(host);
-
-  if (tokenFilePath === null) {
-    return createRefreshError("claude", "Claude token file is unavailable.");
-  }
-
-  const tokenPayload = await readJsonFile(host, tokenFilePath);
+  const tokenPayload = await readJsonFile(host, resolvedSource.tokenFilePath);
 
   if (tokenPayload.status !== "ok") {
     return createRefreshError("claude", "Claude token file could not be read.");
@@ -1664,35 +1530,45 @@ const refreshClaudeFromResolvedSource = async (
   resolvedSource: ClaudeResolvedSource,
   providerConfig: ClaudeProviderConfig,
 ): Promise<ProviderRefreshActionResult<"claude">> => {
-  if (resolvedSource === "oauth") {
-    const oauthResult = await fetchClaudeOAuthSnapshot(host);
+  if (resolvedSource.kind === "oauth") {
+    const oauthResult = await fetchClaudeOAuthSnapshot(host, resolvedSource);
 
     if (oauthResult.status !== "error" || providerConfig.source !== "auto") {
       return oauthResult;
     }
 
-    if ((await host.commands.which("claude")) !== null) {
-      const cliResult = await refreshClaudeViaCli(host);
+    if (resolvedSource.fallbackCli !== null) {
+      const cliResult = await refreshClaudeViaCli(host, resolvedSource.fallbackCli);
 
       if (cliResult.status !== "error") {
         return cliResult;
       }
     }
 
-    return refreshClaudeViaWeb(host, providerConfig);
+    const webSource = await resolveClaudeWebSource(host, providerConfig);
+
+    if (webSource === null) {
+      return oauthResult;
+    }
+
+    return refreshClaudeViaWeb(host, webSource);
   }
 
-  if (resolvedSource === "cli") {
-    const cliResult = await refreshClaudeViaCli(host);
+  if (resolvedSource.kind === "cli") {
+    const cliResult = await refreshClaudeViaCli(host, resolvedSource.cli);
 
     if (cliResult.status !== "error" || providerConfig.source !== "auto") {
       return cliResult;
     }
 
-    return refreshClaudeViaWeb(host, providerConfig);
+    if (resolvedSource.fallbackWeb === null) {
+      return cliResult;
+    }
+
+    return refreshClaudeViaWeb(host, resolvedSource.fallbackWeb);
   }
 
-  return refreshClaudeViaWeb(host, providerConfig);
+  return refreshClaudeViaWeb(host, resolvedSource.web);
 };
 
 const createClaudeProviderAdapter = (host: RuntimeHost): ClaudeProviderAdapter => ({

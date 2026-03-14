@@ -5,6 +5,8 @@ import type {
 } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
+import { readGeminiAuthType, resolveGeminiOauthPath, resolveGeminiSettingsPath, resolveGeminiSource } from '@/runtime/providers/gemini/source-plan.ts';
+import type { GeminiResolvedApiSource, GeminiResolvedSource } from '@/runtime/providers/gemini/source-plan.ts';
 import {
   createProviderQuotaBucketSnapshot,
   createRefreshError,
@@ -42,7 +44,6 @@ const oauthClientFileCandidates = [
   "lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
 ] as const;
 
-type GeminiResolvedSource = "api";
 type GeminiTier = "free-tier" | "legacy-tier" | "standard-tier" | null;
 
 interface GeminiOAuthCredentials {
@@ -67,27 +68,8 @@ interface GeminiCodeAssistStatus {
 const convertRemainingFractionToUsedFraction = (remainingFraction: number): number =>
   Math.max(0, Math.min(1, 1 - remainingFraction));
 
-const resolveGeminiSettingsPath = (host: RuntimeHost): string =>
-  joinPath(host.homeDirectory, ".gemini", "settings.json");
-
-const resolveGeminiOauthPath = (host: RuntimeHost): string =>
-  joinPath(host.homeDirectory, ".gemini", "oauth_creds.json");
-
 const resolveGeminiVersion = async (host: RuntimeHost): Promise<string | null> =>
   readCommandVersion(host, "gemini", ["--version"], geminiTimeoutMs);
-
-const readGeminiAuthType = async (host: RuntimeHost): Promise<string | null> => {
-  const settingsPayload = await readJsonFile(host, resolveGeminiSettingsPath(host));
-
-  if (settingsPayload.status !== "ok" || !isRecord(settingsPayload.value)) {
-    return explicitNull;
-  }
-
-  const security = readNestedRecord(settingsPayload.value, "security");
-  const auth = security ? readNestedRecord(security, "auth") : explicitNull;
-
-  return auth ? readString(auth, "selectedType") : explicitNull;
-};
 
 const parseGeminiCredentials = (value: unknown): GeminiOAuthCredentials | null => {
   if (!isRecord(value)) {
@@ -202,16 +184,6 @@ const refreshGeminiAccessToken = async (
   }
 
   return nextCredentials;
-};
-
-const resolveGeminiSource = async (host: RuntimeHost): Promise<GeminiResolvedSource | null> => {
-  const authType = await readGeminiAuthType(host);
-
-  if (authType === null || authType === "api-key" || authType === "vertex-ai") {
-    return explicitNull;
-  }
-
-  return (await host.fileSystem.fileExists(resolveGeminiOauthPath(host))) ? "api" : explicitNull;
 };
 
 const parseGeminiQuotaBuckets = (quotaPayload: unknown): GeminiQuotaBucket[] => {
@@ -485,16 +457,16 @@ const parseGeminiQuotaSnapshot = (
   );
 };
 
-const readJwtHostedDomain = (record: Record<string, unknown>): string | null => (
-    readJwtStringClaim(record, "id_token", "hd") ??
-    readJwtStringClaim(record, "idToken", "hd") ??
-    explicitNull
-  );
+const readJwtHostedDomain = (record: Record<string, unknown>): string | null =>
+  readJwtStringClaim(record, "id_token", "hd") ??
+  readJwtStringClaim(record, "idToken", "hd") ??
+  explicitNull;
 
 const fetchGeminiApiSnapshot = async (
   host: RuntimeHost,
+  resolvedSource: GeminiResolvedApiSource,
 ): Promise<ProviderRefreshActionResult<"gemini">> => {
-  const oauthPayload = await readJsonFile(host, resolveGeminiOauthPath(host));
+  const oauthPayload = await readJsonFile(host, resolvedSource.oauthPath);
 
   if (oauthPayload.status !== "ok") {
     return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");
@@ -620,8 +592,8 @@ const refreshGeminiFromResolvedSource = async (
   host: RuntimeHost,
   resolvedSource: GeminiResolvedSource,
 ): Promise<ProviderRefreshActionResult<"gemini">> => {
-  if (resolvedSource === "api") {
-    return fetchGeminiApiSnapshot(host);
+  if (resolvedSource.kind === "api") {
+    return fetchGeminiApiSnapshot(host, resolvedSource);
   }
 
   return createRefreshError("gemini", "Gemini OAuth credentials are unavailable.");

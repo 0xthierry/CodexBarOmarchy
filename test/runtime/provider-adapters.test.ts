@@ -22,6 +22,9 @@ import type {
   RuntimeHttpResponse,
 } from "../../src/runtime/host.ts";
 import { createRuntimeProviderAdapters } from "../../src/runtime/provider-adapters.ts";
+import { resolveClaudeSource } from "../../src/runtime/providers/claude.ts";
+import { resolveCodexSource } from "../../src/runtime/providers/codex.ts";
+import { resolveGeminiSource } from "../../src/runtime/providers/gemini.ts";
 import {
   isRecord,
   parseJsonText,
@@ -306,6 +309,111 @@ afterEach(async () => {
       await rm(path, { force: true, recursive: true });
     }
   }
+});
+
+test("claude auto source resolution returns an oauth handle with a cli fallback handle", async () => {
+  const fixture = await createHostFixture({
+    which: {
+      claude: fakeBinaryPath("claude"),
+      script: fakeBinaryPath("script"),
+    },
+  });
+  const oauthPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
+
+  await writeJson(oauthPath, {
+    claudeAiOauth: {
+      accessToken: "access-token",
+    },
+  });
+
+  const resolvedSource = await resolveClaudeSource(
+    fixture.host,
+    "auto",
+    createConfig().providers.claude,
+  );
+
+  expect(resolvedSource).toEqual({
+    fallbackCli: {
+      claudeBinaryPath: fakeBinaryPath("claude"),
+      scriptBinaryPath: fakeBinaryPath("script"),
+    },
+    kind: "oauth",
+    oauthPath,
+  });
+});
+
+test("claude manual web source resolution returns a manual session token handle", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture();
+
+  const resolvedSource = await resolveClaudeSource(fixture.host, "web", {
+    ...config.providers.claude,
+    cookieSource: "manual",
+    tokenAccounts: [
+      {
+        label: "primary",
+        token: "sk-ant-session-token",
+      },
+    ],
+  });
+
+  expect(resolvedSource).toEqual({
+    kind: "web",
+    web: {
+      kind: "manual-session-token",
+      sessionToken: "sk-ant-session-token",
+    },
+  });
+});
+
+test("codex auto source resolution returns an oauth handle with a cli fallback handle", async () => {
+  const fixture = await createHostFixture({
+    which: {
+      codex: fakeBinaryPath("codex"),
+    },
+  });
+  const authPath = join(fixture.homeDirectory, ".codex", "auth.json");
+
+  await writeJson(authPath, {
+    account_id: "account-123",
+    tokens: {
+      access_token: "access-token",
+    },
+  });
+
+  const resolvedSource = await resolveCodexSource(fixture.host, "auto");
+
+  expect(resolvedSource).toEqual({
+    authPath,
+    fallbackCli: {
+      kind: "cli",
+    },
+    kind: "oauth",
+  });
+});
+
+test("gemini source resolution returns an api handle with the resolved oauth path", async () => {
+  const fixture = await createHostFixture();
+  const oauthPath = join(fixture.homeDirectory, ".gemini", "oauth_creds.json");
+  const settingsPath = join(fixture.homeDirectory, ".gemini", "settings.json");
+
+  await writeJson(oauthPath, {
+    access_token: "access-token",
+  });
+  await writeJson(settingsPath, {
+    security: {
+      auth: {
+        selectedType: "oauth-personal",
+      },
+    },
+  });
+
+  const resolvedSource = await resolveGeminiSource(fixture.host);
+
+  expect(resolvedSource).toEqual({
+    kind: "api",
+    oauthPath,
+  });
 });
 
 test("codex refreshes against the real usage API contract", async () => {
