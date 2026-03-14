@@ -1,8 +1,12 @@
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
-import { createProviderQuotaBucketSnapshot, createRefreshSuccessFromSeed, formatFractionPercent } from '@/runtime/providers/collection/snapshot.ts';
-import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
+import {
+  createProviderQuotaBucketSnapshot,
+  createRateWindowMetricInput,
+  createRefreshSuccessFromSeed,
+} from "@/runtime/providers/collection/snapshot.ts";
+import type { ProviderMetricInput } from "@/runtime/providers/collection/snapshot.ts";
 import type { GeminiResolvedApiSource } from "@/runtime/providers/gemini/source-plan.ts";
 import { readJwtStringClaim } from "@/runtime/providers/collection/jwt.ts";
 import {
@@ -387,12 +391,14 @@ const parseGeminiQuotaSnapshot = (
     }
   }
 
-  const metrics: ProviderMetricInput[] = [...metricsByLabel.entries()].map(([label, metric]) => ({
-    detail: metric.detail,
-    kind: label === "Pro" ? "pro" : "flash",
-    label,
-    value: formatFractionPercent(metric.value),
-  }));
+  const metrics: ProviderMetricInput[] = [...metricsByLabel.entries()].map(([label, metric]) =>
+    createRateWindowMetricInput({
+      detail: metric.detail,
+      kind: label === "Pro" ? "pro" : "flash",
+      label,
+      usedPercent: metric.value * 100,
+    }),
+  );
 
   if (metrics.length === 0) {
     return createRefreshError("gemini", "Gemini quota data did not include Pro or Flash buckets.");

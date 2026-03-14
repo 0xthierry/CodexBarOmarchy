@@ -1,8 +1,12 @@
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
+import type { ProviderMetricKind } from "@/core/store/runtime-state.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
-import { createRefreshSuccessFromSeed } from '@/runtime/providers/collection/snapshot.ts';
-import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
+import {
+  createRateWindowMetricInput,
+  createRefreshSuccessFromSeed,
+} from "@/runtime/providers/collection/snapshot.ts";
+import type { ProviderMetricInput } from "@/runtime/providers/collection/snapshot.ts";
 import { resolveClaudeWebSession } from "@/runtime/providers/claude-web-auth.ts";
 import type { ClaudeWebSessionSnapshot } from "@/runtime/providers/claude-web-models.ts";
 import {
@@ -28,7 +32,14 @@ interface ClaudeWebUsageResponse {
   metrics: ProviderMetricInput[];
 }
 
-const isProviderMetricInput = (value: unknown): value is ProviderMetricInput => {
+interface StoredProviderMetricRecord {
+  detail?: string | null;
+  kind?: ProviderMetricKind;
+  label: string;
+  value: string;
+}
+
+const isStoredProviderMetricRecord = (value: unknown): value is StoredProviderMetricRecord => {
   if (!isRecord(value)) {
     return false;
   }
@@ -44,6 +55,50 @@ const isProviderMetricInput = (value: unknown): value is ProviderMetricInput => 
   );
 };
 
+const parseStoredUsedPercent = (value: string): number | null => {
+  const matchedPercent = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)%$/u)?.[1];
+
+  if (typeof matchedPercent !== "string") {
+    return explicitNull;
+  }
+
+  const parsedPercent = Number(matchedPercent);
+
+  return Number.isFinite(parsedPercent) ? parsedPercent : explicitNull;
+};
+
+const normalizeStoredProviderMetric = (
+  metric: StoredProviderMetricRecord,
+): ProviderMetricInput | null => {
+  if (
+    metric.kind === "session" ||
+    metric.kind === "weekly" ||
+    metric.kind === "sonnet" ||
+    metric.kind === "pro" ||
+    metric.kind === "flash"
+  ) {
+    const usedPercent = parseStoredUsedPercent(metric.value);
+
+    if (usedPercent === null) {
+      return explicitNull;
+    }
+
+    return createRateWindowMetricInput({
+      kind: metric.kind,
+      label: metric.label,
+      ...(metric.detail === undefined ? {} : { detail: metric.detail }),
+      usedPercent,
+    });
+  }
+
+  return {
+    label: metric.label,
+    value: metric.value,
+    ...(metric.detail === undefined ? {} : { detail: metric.detail }),
+    ...(metric.kind === undefined ? {} : { kind: metric.kind }),
+  };
+};
+
 const readProviderMetrics = (
   record: Record<string, unknown>,
   key: string,
@@ -54,7 +109,23 @@ const readProviderMetrics = (
     return explicitNull;
   }
 
-  return metrics.every((metric) => isProviderMetricInput(metric)) ? metrics : explicitNull;
+  const normalizedMetrics: ProviderMetricInput[] = [];
+
+  for (const metric of metrics) {
+    if (!isStoredProviderMetricRecord(metric)) {
+      return explicitNull;
+    }
+
+    const normalizedMetric = normalizeStoredProviderMetric(metric);
+
+    if (normalizedMetric === null) {
+      return explicitNull;
+    }
+
+    normalizedMetrics.push(normalizedMetric);
+  }
+
+  return normalizedMetrics;
 };
 
 const fetchClaudeWebUsage = async (

@@ -1,8 +1,11 @@
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeHost } from "@/runtime/host.ts";
-import { createRefreshSuccessFromSeed } from '@/runtime/providers/collection/snapshot.ts';
-import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
+import {
+  createRateWindowMetricInput,
+  createRefreshSuccessFromSeed,
+} from "@/runtime/providers/collection/snapshot.ts";
+import type { ProviderMetricInput } from "@/runtime/providers/collection/snapshot.ts";
 import {
   normalizeClaudePlanLabel,
   sanitizeClaudeIdentityLabel,
@@ -327,7 +330,7 @@ const formatClaudeCliResetAt = (detail: string | null, referenceAt: string): str
 const findClaudeCliMetric = (
   lines: string[],
   labels: string[],
-): { resetAt: string | null; usedPercent: string | null } => {
+): { resetAt: string | null; usedPercent: number | null } => {
   const normalizedLabels = labels.map((label) => compactCliToken(label));
   const normalizedBoundaryLabels = [
     "Current session",
@@ -352,7 +355,7 @@ const findClaudeCliMetric = (
   }
 
   let resetAt: string | null = explicitNull;
-  let usedPercent: string | null = explicitNull;
+  let usedPercent: number | null = explicitNull;
 
   for (const line of lines.slice(labelIndex + 1, labelIndex + 5)) {
     const normalizedLine = compactCliToken(line);
@@ -365,7 +368,11 @@ const findClaudeCliMetric = (
       const percentMatch = line.match(/([0-9]{1,3})%\s*used/iu) ?? line.match(/([0-9]{1,3})%/u);
 
       if (typeof percentMatch?.[1] === "string") {
-        usedPercent = `${percentMatch[1]}%`;
+        const parsedPercent = Number(percentMatch[1]);
+
+        if (Number.isFinite(parsedPercent)) {
+          usedPercent = parsedPercent;
+        }
       }
     }
 
@@ -523,30 +530,36 @@ const parseClaudeCliSnapshot = (
   );
 
   if (sessionMetric.usedPercent !== null) {
-    metrics.push({
-      detail: formatClaudeCliResetAt(sessionMetric.resetAt, updatedAt),
-      kind: "session",
-      label: "Session",
-      value: sessionMetric.usedPercent,
-    });
+    metrics.push(
+      createRateWindowMetricInput({
+        detail: formatClaudeCliResetAt(sessionMetric.resetAt, updatedAt),
+        kind: "session",
+        label: "Session",
+        usedPercent: sessionMetric.usedPercent,
+      }),
+    );
   }
 
   if (weeklyMetric.usedPercent !== null) {
-    metrics.push({
-      detail: formatClaudeCliResetAt(weeklyMetric.resetAt, updatedAt),
-      kind: "weekly",
-      label: "Weekly",
-      value: weeklyMetric.usedPercent,
-    });
+    metrics.push(
+      createRateWindowMetricInput({
+        detail: formatClaudeCliResetAt(weeklyMetric.resetAt, updatedAt),
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: weeklyMetric.usedPercent,
+      }),
+    );
   }
 
   if (sonnetMetric.usedPercent !== null) {
-    metrics.push({
-      detail: formatClaudeCliResetAt(sonnetMetric.resetAt, updatedAt),
-      kind: "sonnet",
-      label: "Sonnet",
-      value: sonnetMetric.usedPercent,
-    });
+    metrics.push(
+      createRateWindowMetricInput({
+        detail: formatClaudeCliResetAt(sonnetMetric.resetAt, updatedAt),
+        kind: "sonnet",
+        label: "Sonnet",
+        usedPercent: sonnetMetric.usedPercent,
+      }),
+    );
   }
 
   if (metrics.length === 0) {

@@ -1,6 +1,6 @@
 import { explicitNull } from "@/core/providers/shared.ts";
+import { createRateWindowMetricInput } from "@/runtime/providers/collection/snapshot.ts";
 import {
-  formatPercent,
   isRecord,
   readBoolean,
   readFiniteNumber,
@@ -160,36 +160,42 @@ const collectClaudeMetrics = (usageRecord: ClaudeOAuthUsageResponse): ProviderMe
     usageRecord.fiveHour?.utilization !== null &&
     usageRecord.fiveHour?.utilization !== undefined
   ) {
-    metrics.push({
-      detail: usageRecord.fiveHour.resetsAt,
-      kind: "session",
-      label: "Session",
-      value: formatPercent(usageRecord.fiveHour.utilization),
-    });
+    metrics.push(
+      createRateWindowMetricInput({
+        detail: usageRecord.fiveHour.resetsAt,
+        kind: "session",
+        label: "Session",
+        usedPercent: usageRecord.fiveHour.utilization,
+      }),
+    );
   }
 
   if (
     usageRecord.sevenDay?.utilization !== null &&
     usageRecord.sevenDay?.utilization !== undefined
   ) {
-    metrics.push({
-      detail: usageRecord.sevenDay.resetsAt,
-      kind: "weekly",
-      label: "Weekly",
-      value: formatPercent(usageRecord.sevenDay.utilization),
-    });
+    metrics.push(
+      createRateWindowMetricInput({
+        detail: usageRecord.sevenDay.resetsAt,
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: usageRecord.sevenDay.utilization,
+      }),
+    );
   }
 
   if (
     usageRecord.sevenDaySonnet?.utilization !== null &&
     usageRecord.sevenDaySonnet?.utilization !== undefined
   ) {
-    metrics.push({
-      detail: usageRecord.sevenDaySonnet.resetsAt,
-      kind: "sonnet",
-      label: "Sonnet",
-      value: formatPercent(usageRecord.sevenDaySonnet.utilization),
-    });
+    metrics.push(
+      createRateWindowMetricInput({
+        detail: usageRecord.sevenDaySonnet.resetsAt,
+        kind: "sonnet",
+        label: "Sonnet",
+        usedPercent: usageRecord.sevenDaySonnet.utilization,
+      }),
+    );
   }
 
   return metrics;

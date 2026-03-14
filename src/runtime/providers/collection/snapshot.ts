@@ -18,12 +18,26 @@ import type {
 
 type ProviderId = "claude" | "codex" | "gemini";
 
-interface ProviderMetricInput {
+const providerRateWindowMetricKinds = ["session", "weekly", "sonnet", "pro", "flash"] as const;
+
+type ProviderRateWindowKind = (typeof providerRateWindowMetricKinds)[number];
+
+interface ProviderBaseMetricInput {
   detail?: string | null;
-  kind?: ProviderMetricKind;
   label: string;
+}
+
+interface ProviderRateWindowMetricInput extends ProviderBaseMetricInput {
+  kind: ProviderRateWindowKind;
+  usedPercent: number;
+}
+
+interface ProviderDisplayMetricInput extends ProviderBaseMetricInput {
+  kind?: Exclude<ProviderMetricKind, ProviderRateWindowKind>;
   value: string;
 }
+
+type ProviderMetricInput = ProviderRateWindowMetricInput | ProviderDisplayMetricInput;
 
 interface ProviderRefreshSeed {
   accountEmail?: string | null;
@@ -52,24 +66,34 @@ const isProviderDetailsOfKind = <Kind extends ProviderDetailsKind>(
 const formatPercent = (value: number): string => `${Math.round(value)}%`;
 const formatFractionPercent = (value: number): string => formatPercent(value * 100);
 
+const isProviderRateWindowMetricInput = (
+  input: ProviderMetricInput,
+): input is ProviderRateWindowMetricInput =>
+  (input.kind === "session" ||
+    input.kind === "weekly" ||
+    input.kind === "sonnet" ||
+    input.kind === "pro" ||
+    input.kind === "flash") &&
+  "usedPercent" in input;
+
+const createRateWindowMetricInput = (input: {
+  detail?: string | null;
+  kind: ProviderRateWindowKind;
+  label: string;
+  usedPercent: number;
+}): ProviderRateWindowMetricInput => ({
+  detail: input.detail ?? explicitNull,
+  kind: input.kind,
+  label: input.label,
+  usedPercent: input.usedPercent,
+});
+
 const createMetric = (input: ProviderMetricInput): ProviderMetricView => ({
   detail: input.detail ?? explicitNull,
   kind: input.kind ?? "custom",
   label: input.label,
-  value: input.value,
+  value: isProviderRateWindowMetricInput(input) ? formatPercent(input.usedPercent) : input.value,
 });
-
-const parsePercentValue = (value: string): number | null => {
-  const matchedPercent = value.trim().match(/^([0-9]+(?:\.[0-9]+)?)%$/u)?.[1];
-
-  if (typeof matchedPercent !== "string") {
-    return explicitNull;
-  }
-
-  const parsedPercent = Number(matchedPercent);
-
-  return Number.isFinite(parsedPercent) ? parsedPercent : explicitNull;
-};
 
 const createRateWindowSnapshot = (input: {
   label: string;
@@ -131,7 +155,9 @@ const createUsageSnapshot = (
 
   for (const metricInput of metrics) {
     const metric = createMetric(metricInput);
-    const usedPercent = parsePercentValue(metric.value);
+    const usedPercent = isProviderRateWindowMetricInput(metricInput)
+      ? metricInput.usedPercent
+      : explicitNull;
 
     if (metric.kind === "session") {
       usage.windows.session = metric;
@@ -291,6 +317,7 @@ const updateProviderDetails = <Kind extends ProviderDetailsKind>(
 };
 
 export {
+  createRateWindowMetricInput,
   createProviderCostSnapshot,
   createProviderQuotaBucketSnapshot,
   createRefreshError,
@@ -305,5 +332,6 @@ export {
   type ProviderDetailsOf,
   type ProviderId,
   type ProviderMetricInput,
+  type ProviderRateWindowKind,
   type ProviderRefreshSeed,
 };

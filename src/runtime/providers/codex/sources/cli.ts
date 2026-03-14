@@ -1,8 +1,11 @@
 import type { ProviderRefreshActionResult } from "@/core/actions/provider-adapter.ts";
 import { explicitNull } from "@/core/providers/shared.ts";
 import type { RuntimeCommandLineSession, RuntimeHost } from "@/runtime/host.ts";
-import { createRefreshSuccessFromSeed, formatPercent } from '@/runtime/providers/collection/snapshot.ts';
-import type { ProviderMetricInput } from '@/runtime/providers/collection/snapshot.ts';
+import {
+  createRateWindowMetricInput,
+  createRefreshSuccessFromSeed,
+} from "@/runtime/providers/collection/snapshot.ts";
+import type { ProviderMetricInput } from "@/runtime/providers/collection/snapshot.ts";
 import type { CodexResolvedCliSource } from "@/runtime/providers/codex/source-plan.ts";
 import {
   createRefreshError,
@@ -132,21 +135,25 @@ const parseCodexCliSnapshot = (
   }
 
   if (typeof primaryPercent === "number") {
-    metrics.push({
-      detail: formatResetAt(rateLimits?.primary?.resetsAt),
-      kind: "session",
-      label: "Session",
-      value: formatPercent(primaryPercent),
-    });
+    metrics.push(
+      createRateWindowMetricInput({
+        detail: formatResetAt(rateLimits?.primary?.resetsAt),
+        kind: "session",
+        label: "Session",
+        usedPercent: primaryPercent,
+      }),
+    );
   }
 
   if (typeof secondaryPercent === "number") {
-    metrics.push({
-      detail: formatResetAt(rateLimits?.secondary?.resetsAt),
-      kind: "weekly",
-      label: "Weekly",
-      value: formatPercent(secondaryPercent),
-    });
+    metrics.push(
+      createRateWindowMetricInput({
+        detail: formatResetAt(rateLimits?.secondary?.resetsAt),
+        kind: "weekly",
+        label: "Weekly",
+        usedPercent: secondaryPercent,
+      }),
+    );
   }
 
   if (Number.isFinite(creditBalance)) {
