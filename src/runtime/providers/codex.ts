@@ -10,7 +10,11 @@ import { resolveCodexAuthPath, resolveCodexSource } from "@/runtime/providers/co
 import type { CodexResolvedSource } from "@/runtime/providers/codex/source-plan.ts";
 import { fetchCodexCliSnapshot } from "@/runtime/providers/codex/sources/cli.ts";
 import { fetchCodexOAuthSnapshot } from "@/runtime/providers/codex/sources/oauth.ts";
-import { runResolvedRefresh } from "@/runtime/providers/shared.ts";
+import {
+  createSourceFailureDiagnostic,
+  runResolvedRefresh,
+  withSourceFailureDiagnostics,
+} from "@/runtime/providers/shared.ts";
 
 const refreshCodexFromResolvedSource = async (
   host: RuntimeHost,
@@ -28,7 +32,15 @@ const refreshCodexFromResolvedSource = async (
       return oauthResult;
     }
 
-    return fetchCodexCliSnapshot(host, resolvedSource.fallbackCli);
+    return withSourceFailureDiagnostics(
+      await fetchCodexCliSnapshot(host, resolvedSource.fallbackCli),
+      [
+        createSourceFailureDiagnostic({
+          message: oauthResult.message,
+          sourceLabel: "oauth",
+        }),
+      ],
+    );
   }
 
   return fetchCodexCliSnapshot(host, resolvedSource);

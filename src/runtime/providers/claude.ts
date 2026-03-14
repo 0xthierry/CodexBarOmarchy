@@ -19,7 +19,11 @@ import type { ClaudeResolvedSource } from "@/runtime/providers/claude/source-pla
 import { fetchClaudeOAuthSnapshot } from "@/runtime/providers/claude/sources/oauth.ts";
 import { refreshClaudeViaCli } from "@/runtime/providers/claude/sources/cli.ts";
 import { refreshClaudeViaWeb } from "@/runtime/providers/claude/sources/web.ts";
-import { runResolvedRefresh } from "@/runtime/providers/shared.ts";
+import {
+  createSourceFailureDiagnostic,
+  runResolvedRefresh,
+  withSourceFailureDiagnostics,
+} from "@/runtime/providers/shared.ts";
 
 interface ClaudeProviderConfig {
   activeTokenAccountIndex: number;
@@ -43,12 +47,26 @@ const refreshClaudeFromResolvedSource = async (
       return oauthResult;
     }
 
+    const sourceFailures = [
+      createSourceFailureDiagnostic({
+        message: oauthResult.message,
+        sourceLabel: "oauth",
+      }),
+    ];
+
     if (resolvedSource.fallbackCli !== null) {
       const cliResult = await refreshClaudeViaCli(host, resolvedSource.fallbackCli);
 
       if (cliResult.status !== "error") {
-        return cliResult;
+        return withSourceFailureDiagnostics(cliResult, sourceFailures);
       }
+
+      sourceFailures.push(
+        createSourceFailureDiagnostic({
+          message: cliResult.message,
+          sourceLabel: "cli",
+        }),
+      );
     }
 
     const webSource = await resolveClaudeWebSource(host, providerConfig);
@@ -57,7 +75,7 @@ const refreshClaudeFromResolvedSource = async (
       return oauthResult;
     }
 
-    return refreshClaudeViaWeb(host, webSource);
+    return withSourceFailureDiagnostics(await refreshClaudeViaWeb(host, webSource), sourceFailures);
   }
 
   if (resolvedSource.kind === "cli") {
@@ -71,7 +89,15 @@ const refreshClaudeFromResolvedSource = async (
       return cliResult;
     }
 
-    return refreshClaudeViaWeb(host, resolvedSource.fallbackWeb);
+    return withSourceFailureDiagnostics(
+      await refreshClaudeViaWeb(host, resolvedSource.fallbackWeb),
+      [
+        createSourceFailureDiagnostic({
+          message: cliResult.message,
+          sourceLabel: "cli",
+        }),
+      ],
+    );
   }
 
   return refreshClaudeViaWeb(host, resolvedSource.web);

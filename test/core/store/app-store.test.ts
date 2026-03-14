@@ -89,6 +89,7 @@ const createInitializedAppStore = async (): Promise<ReturnType<typeof createAppS
 };
 
 const createCodexRefreshSnapshot = () => ({
+  diagnostics: null,
   identity: {
     accountEmail: "codex@example.com",
     planLabel: "OAuth",
@@ -413,6 +414,77 @@ test("shows in-flight refresh state and applies the final provider snapshot once
       value: "81%",
     },
   ]);
+});
+
+test("preserves fallback diagnostics from refresh snapshots", async () => {
+  const appStore = createAppStore({
+    binaryLocator: createTestBinaryLocator({
+      claude: true,
+      codex: true,
+      gemini: true,
+    }),
+    configStore: createFakeConfigStore(createDefaultConfig()),
+    providerAdapters: {
+      claude: {
+        login: async () =>
+          createSuccessfulProviderActionResult("claude", "login", "Claude login started."),
+        openTokenFile: async () =>
+          createSuccessfulProviderActionResult("claude", "openTokenFile", "Opened."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("claude", "refresh", "Claude refreshed."),
+            {
+              ...createCodexRefreshSnapshot(),
+              diagnostics: {
+                sourceFailures: [
+                  {
+                    message: "Claude OAuth refresh failed with HTTP 400.",
+                    sourceLabel: "oauth",
+                  },
+                ],
+              },
+              identity: {
+                accountEmail: "claude@example.com",
+                planLabel: "Max",
+              },
+              sourceLabel: "cli",
+            },
+          ),
+        reloadTokenFile: async () =>
+          createSuccessfulProviderActionResult("claude", "reloadTokenFile", "Reloaded."),
+        repair: async () =>
+          createSuccessfulProviderActionResult("claude", "repair", "Claude repaired."),
+      },
+      codex: {
+        login: async () =>
+          createSuccessfulProviderActionResult("codex", "login", "Codex login started."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("codex", "refresh", "Codex refreshed."),
+          ),
+      },
+      gemini: {
+        login: async () =>
+          createSuccessfulProviderActionResult("gemini", "login", "Gemini login started."),
+        refresh: async () =>
+          createRefreshActionResult(
+            createSuccessfulProviderActionResult("gemini", "refresh", "Gemini refreshed."),
+          ),
+      },
+    },
+  });
+
+  await appStore.initialize();
+  await appStore.refreshProvider("claude");
+
+  expect(appStore.getProviderView("claude").status.diagnostics).toEqual({
+    sourceFailures: [
+      {
+        message: "Claude OAuth refresh failed with HTTP 400.",
+        sourceLabel: "oauth",
+      },
+    ],
+  });
 });
 
 test("converts thrown refresh operations into provider error state", async () => {

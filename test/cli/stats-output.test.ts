@@ -22,6 +22,14 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
   ];
   config.providers.claude.activeTokenAccountIndex = 1;
   runtimeStateMap.claude.snapshot = {
+    diagnostics: {
+      sourceFailures: [
+        {
+          message: "Claude OAuth refresh failed with HTTP 400.",
+          sourceLabel: "oauth",
+        },
+      ],
+    },
     identity: {
       accountEmail: "claude@example.com",
       planLabel: "Max",
@@ -84,6 +92,14 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
   expect(claudeProvider?.identity).toEqual({
     accountEmail: "claude@example.com",
     planLabel: "Max",
+  });
+  expect(claudeProvider?.diagnostics).toEqual({
+    sourceFailures: [
+      {
+        message: "Claude OAuth refresh failed with HTTP 400.",
+        sourceLabel: "oauth",
+      },
+    ],
   });
   expect(claudeProvider?.providerDetails).toBeNull();
   expect(claudeProvider?.serviceStatus).toEqual({

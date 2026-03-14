@@ -977,6 +977,11 @@ test("codex auto falls back to the CLI path when oauth credentials are invalid",
   expect(refreshResult.status).toBe("success");
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("codex@example.com");
+  expect(refreshResult.snapshot?.diagnostics?.sourceFailures).toEqual([
+    expect.objectContaining({
+      sourceLabel: "oauth",
+    }),
+  ]);
 });
 
 test("codex returns a refresh error when the usage request throws", async () => {
@@ -1521,6 +1526,11 @@ test("claude auto falls back to cli when oauth refresh fails", async () => {
   expect(refreshResult.snapshot?.sourceLabel).toBe("cli");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("cli@example.com");
   expect(refreshResult.snapshot?.identity.planLabel).toBe("Max");
+  expect(refreshResult.snapshot?.diagnostics?.sourceFailures).toEqual([
+    expect.objectContaining({
+      sourceLabel: "oauth",
+    }),
+  ]);
 });
 
 test("claude auto prefers the cli fallback before the web session fallback", async () => {
@@ -1788,6 +1798,64 @@ test("claude auto falls back to the web snapshot when cli and local fallbacks bo
   expect(refreshResult.snapshot?.sourceLabel).toBe("web");
   expect(refreshResult.snapshot?.identity.accountEmail).toBe("web@example.com");
   expect(refreshResult.snapshot?.identity.planLabel).toBe("Claude Team");
+  expect(
+    refreshResult.snapshot?.diagnostics?.sourceFailures.map((diagnostic) => diagnostic.sourceLabel),
+  ).toEqual(["cli"]);
+});
+
+test("claude oauth fallback keeps oauth and cli diagnostics when web succeeds", async () => {
+  const config = createConfig();
+  const fixture = await createHostFixture({
+    httpResponses: {
+      "POST https://platform.claude.com/v1/oauth/token": [
+        createJsonResponse(
+          {
+            error: "invalid_grant",
+          },
+          400,
+        ),
+      ],
+    },
+    which: {
+      claude: fakeBinaryPath("claude"),
+    },
+  });
+  const credentialsPath = join(fixture.homeDirectory, ".claude", ".credentials.json");
+  const sessionPath = join(fixture.homeDirectory, ".claude", "session.json");
+  const providerAdapters = createRuntimeProviderAdapters(fixture.host);
+
+  await writeJson(credentialsPath, {
+    claudeAiOauth: {
+      accessToken: "expired-access-token",
+      expiresAt: Date.parse("2026-03-07T00:00:00.000Z"),
+      refreshToken: "bad-refresh-token",
+      scopes: ["user:profile"],
+    },
+  });
+  await writeJson(sessionPath, {
+    account: {
+      email_address: "web@example.com",
+    },
+    plan: "Claude Team",
+    usage: {
+      five_hour: {
+        resets_at: "soon",
+        utilization: 19,
+      },
+    },
+  });
+
+  const refreshResult = await providerAdapters.claude.refresh({
+    config,
+    providerConfig: config.providers.claude,
+  });
+
+  expect(refreshResult.status).toBe("success");
+  expect(refreshResult.snapshot?.sourceLabel).toBe("web");
+  expect(refreshResult.snapshot?.identity.accountEmail).toBe("web@example.com");
+  expect(
+    refreshResult.snapshot?.diagnostics?.sourceFailures.map((diagnostic) => diagnostic.sourceLabel),
+  ).toEqual(["oauth", "cli"]);
 });
 
 test("claude web snapshot ignores email-like plan labels in local token payloads", async () => {

@@ -100,6 +100,15 @@ interface ProviderRateWindowSnapshot {
   usedPercent: number;
 }
 
+interface ProviderSourceFailureDiagnosticSnapshot {
+  message: string;
+  sourceLabel: string;
+}
+
+interface ProviderRuntimeDiagnosticsSnapshot {
+  sourceFailures: ProviderSourceFailureDiagnosticSnapshot[];
+}
+
 interface GeminiQuotaDrilldownSnapshot {
   flashBuckets: ProviderQuotaBucketSnapshot[];
   otherBuckets: ProviderQuotaBucketSnapshot[];
@@ -183,6 +192,7 @@ interface ProviderServiceStatusSnapshot {
 }
 
 interface ProviderRuntimeSnapshot {
+  diagnostics?: ProviderRuntimeDiagnosticsSnapshot | null;
   identity: ProviderIdentitySnapshot;
   latestError: string | null;
   providerDetails: ProviderDetailsSnapshot | null;
@@ -250,6 +260,7 @@ const createDefaultProviderUsageSnapshot = (): ProviderUsageSnapshot => ({
 });
 
 const createDefaultProviderRuntimeSnapshot = (): ProviderRuntimeSnapshot => ({
+  diagnostics: explicitNull,
   identity: createDefaultProviderIdentitySnapshot(),
   latestError: explicitNull,
   providerDetails: explicitNull,
@@ -339,6 +350,7 @@ export {
   type ProviderIdentitySnapshot,
   type ProviderMetricKind,
   type ProviderMetricView,
+  type ProviderRuntimeDiagnosticsSnapshot,
   type ProviderQuotaBucketSnapshot,
   type ProviderRateWindowSnapshot,
   type ProviderRuntimeSnapshot,
@@ -347,6 +359,7 @@ export {
   type ProviderRuntimeStatus,
   type ProviderServiceStatusIndicator,
   type ProviderServiceStatusSnapshot,
+  type ProviderSourceFailureDiagnosticSnapshot,
   type ProviderUsageBalancesSnapshot,
   type ProviderUsageSnapshot,
   type ProviderUsageWindowsSnapshot,

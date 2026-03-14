@@ -18,6 +18,7 @@ type StatsProviderSettings = ClaudeStatsSettings | CodexStatsSettings | GeminiSt
 interface StatsProviderSnapshot {
   enabled: boolean;
   id: ProviderView["id"];
+  diagnostics: ProviderView["status"]["diagnostics"];
   identity: ProviderView["status"]["identity"];
   latestError: string | null;
   metrics: ReturnType<typeof getProviderSnapshotMetrics>;
@@ -63,6 +64,7 @@ const toStatsProviderSettings = (providerView: ProviderView): StatsProviderSetti
 
 const toStatsProviderSnapshot = (providerView: ProviderView): StatsProviderSnapshot => ({
   accountEmail: providerView.status.identity.accountEmail,
+  diagnostics: providerView.status.diagnostics ?? null,
   enabled: providerView.enabled,
   id: providerView.id,
   identity: providerView.status.identity,

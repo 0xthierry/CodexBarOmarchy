@@ -45,10 +45,12 @@ export {
   createRefreshError,
   createRefreshSuccess,
   createSnapshot,
+  createSourceFailureDiagnostic,
   createUsageSnapshot,
   formatFractionPercent,
   formatPercent,
   updateProviderDetails,
+  withSourceFailureDiagnostics,
   type ProviderMetricInput,
 } from "@/runtime/providers/collection/snapshot.ts";
 export {

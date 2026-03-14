@@ -12,7 +12,9 @@ import type {
   ProviderMetricView,
   ProviderQuotaBucketSnapshot,
   ProviderRateWindowSnapshot,
+  ProviderRuntimeDiagnosticsSnapshot,
   ProviderRuntimeSnapshot,
+  ProviderSourceFailureDiagnosticSnapshot,
   ProviderUsageSnapshot,
 } from "@/core/store/runtime-state.ts";
 
@@ -41,6 +43,7 @@ type ProviderMetricInput = ProviderRateWindowMetricInput | ProviderDisplayMetric
 
 interface ProviderRefreshSeed {
   accountEmail?: string | null;
+  diagnostics?: ProviderRuntimeDiagnosticsSnapshot | null;
   latestError?: string | null;
   metrics?: ProviderMetricInput[];
   planLabel?: string | null;
@@ -251,6 +254,7 @@ const createUsageSnapshot = (
 };
 
 const createSnapshot = (input: ProviderRefreshSeed): ProviderRuntimeSnapshot => ({
+  diagnostics: input.diagnostics ?? explicitNull,
   identity: {
     accountEmail: input.accountEmail ?? explicitNull,
     planLabel: input.planLabel ?? explicitNull,
@@ -316,6 +320,33 @@ const updateProviderDetails = <Kind extends ProviderDetailsKind>(
   };
 };
 
+const createSourceFailureDiagnostic = (input: {
+  message: string;
+  sourceLabel: string;
+}): ProviderSourceFailureDiagnosticSnapshot => ({
+  message: input.message,
+  sourceLabel: input.sourceLabel,
+});
+
+const withSourceFailureDiagnostics = <ProviderValue extends ProviderId>(
+  result: ProviderRefreshActionResult<ProviderValue>,
+  diagnostics: ProviderSourceFailureDiagnosticSnapshot[],
+): ProviderRefreshActionResult<ProviderValue> => {
+  if (result.snapshot === null || diagnostics.length === 0) {
+    return result;
+  }
+
+  return {
+    ...result,
+    snapshot: {
+      ...result.snapshot,
+      diagnostics: {
+        sourceFailures: [...(result.snapshot.diagnostics?.sourceFailures ?? []), ...diagnostics],
+      },
+    },
+  };
+};
+
 export {
   createRateWindowMetricInput,
   createProviderCostSnapshot,
@@ -324,10 +355,12 @@ export {
   createRefreshSuccess,
   createRefreshSuccessFromSeed,
   createSnapshot,
+  createSourceFailureDiagnostic,
   createUsageSnapshot,
   formatFractionPercent,
   formatPercent,
   updateProviderDetails,
+  withSourceFailureDiagnostics,
   withProviderDetails,
   type ProviderDetailsOf,
   type ProviderId,
