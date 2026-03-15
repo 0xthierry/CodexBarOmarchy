@@ -289,10 +289,6 @@ const assertGeminiProviderView = (providerView: Extract<ProviderView, { id: "gem
     `gemini: unexpected source "${providerView.status.sourceLabel ?? "null"}".`,
   );
   assert(
-    Object.keys(providerView.settings).length === 0,
-    "gemini: expected no provider-specific settings.",
-  );
-  assert(
     providerView.status.identity.accountEmail !== null,
     "gemini: accountEmail should be present for the UI.",
   );
@@ -357,7 +353,6 @@ const sanitizeProviderView = (providerView: ProviderView): unknown => {
     enabled: providerView.enabled,
     id: providerView.id,
     selected: providerView.selected,
-    settings: providerView.settings,
     status: providerView.status,
   };
 };

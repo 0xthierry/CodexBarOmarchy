@@ -82,6 +82,7 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
 
   const snapshot = createStatsSnapshot(createAppStoreState(config, runtimeStateMap), currentTime);
   const claudeProvider = snapshot.providers.find((provider) => provider.id === "claude");
+  const geminiProvider = snapshot.providers.find((provider) => provider.id === "gemini");
 
   expect(snapshot.generatedAt).toBe("2026-03-10T15:45:12.000Z");
   expect(snapshot.selectedProviderId).toBe("claude");
@@ -116,6 +117,7 @@ test("creates a safe JSON-friendly stats snapshot without token secrets", () => 
     updatedAt: "2026-03-10T12:00:00.000Z",
     used: 12.34,
   });
+  expect(geminiProvider?.settings).toBeUndefined();
   expect(JSON.stringify(snapshot)).not.toContain("secret-1");
   expect(JSON.stringify(snapshot)).not.toContain("secret-2");
 });

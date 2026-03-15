@@ -52,9 +52,7 @@ interface CodexProviderView extends ProviderViewBase<"codex"> {
   };
 }
 
-interface GeminiProviderView extends ProviderViewBase<"gemini"> {
-  settings: Record<string, never>;
-}
+type GeminiProviderView = ProviderViewBase<"gemini">;
 
 type ProviderView = ClaudeProviderView | CodexProviderView | GeminiProviderView;
 
@@ -143,7 +141,6 @@ const createGeminiProviderView = (
   enabled: config.providers.gemini.enabled,
   id: "gemini",
   selected: config.selectedProvider === "gemini",
-  settings: {},
   status: providerRuntimeStates.gemini.snapshot,
 });
 

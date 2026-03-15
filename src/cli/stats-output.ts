@@ -11,9 +11,7 @@ interface CodexStatsSettings {
   showManualCookieField: boolean;
 }
 
-interface GeminiStatsSettings {}
-
-type StatsProviderSettings = ClaudeStatsSettings | CodexStatsSettings | GeminiStatsSettings;
+type StatsProviderSettings = ClaudeStatsSettings | CodexStatsSettings;
 
 interface StatsProviderSnapshot {
   enabled: boolean;
@@ -25,7 +23,7 @@ interface StatsProviderSnapshot {
   providerDetails: ProviderView["status"]["providerDetails"];
   serviceStatus: ProviderView["status"]["serviceStatus"];
   selected: boolean;
-  settings: StatsProviderSettings;
+  settings?: StatsProviderSettings;
   sourceLabel: string | null;
   state: ProviderView["status"]["state"];
   updatedAt: string | null;
@@ -42,7 +40,7 @@ interface StatsSnapshot {
   selectedProviderId: AppStoreState["selectedProviderId"];
 }
 
-const toStatsProviderSettings = (providerView: ProviderView): StatsProviderSettings => {
+const toStatsProviderSettings = (providerView: ProviderView): StatsProviderSettings | undefined => {
   if (providerView.id === "claude") {
     return {
       activeTokenAccountIndex: providerView.settings.activeTokenAccountIndex,
@@ -59,28 +57,32 @@ const toStatsProviderSettings = (providerView: ProviderView): StatsProviderSetti
     };
   }
 
-  return {};
+  return undefined;
 };
 
-const toStatsProviderSnapshot = (providerView: ProviderView): StatsProviderSnapshot => ({
-  accountEmail: providerView.status.identity.accountEmail,
-  diagnostics: providerView.status.diagnostics ?? null,
-  enabled: providerView.enabled,
-  id: providerView.id,
-  identity: providerView.status.identity,
-  latestError: providerView.status.latestError,
-  metrics: getProviderSnapshotMetrics(providerView.status),
-  planLabel: providerView.status.identity.planLabel,
-  providerDetails: providerView.status.providerDetails,
-  selected: providerView.selected,
-  serviceStatus: providerView.status.serviceStatus,
-  settings: toStatsProviderSettings(providerView),
-  sourceLabel: providerView.status.sourceLabel,
-  state: providerView.status.state,
-  updatedAt: providerView.status.updatedAt,
-  usage: providerView.status.usage,
-  version: providerView.status.version,
-});
+const toStatsProviderSnapshot = (providerView: ProviderView): StatsProviderSnapshot => {
+  const settings = toStatsProviderSettings(providerView);
+
+  return {
+    accountEmail: providerView.status.identity.accountEmail,
+    diagnostics: providerView.status.diagnostics ?? null,
+    enabled: providerView.enabled,
+    id: providerView.id,
+    identity: providerView.status.identity,
+    latestError: providerView.status.latestError,
+    metrics: getProviderSnapshotMetrics(providerView.status),
+    planLabel: providerView.status.identity.planLabel,
+    providerDetails: providerView.status.providerDetails,
+    selected: providerView.selected,
+    serviceStatus: providerView.status.serviceStatus,
+    sourceLabel: providerView.status.sourceLabel,
+    state: providerView.status.state,
+    updatedAt: providerView.status.updatedAt,
+    usage: providerView.status.usage,
+    version: providerView.status.version,
+    ...(settings === undefined ? {} : { settings }),
+  };
+};
 
 const createStatsSnapshot = (state: AppStoreState, now: Date = new Date()): StatsSnapshot => ({
   enabledProviderIds: state.enabledProviderIds,

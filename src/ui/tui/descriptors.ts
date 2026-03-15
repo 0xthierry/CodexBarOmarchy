@@ -207,22 +207,6 @@ const createClaudeItems = (
   ];
 };
 
-const createGeminiItems = (
-  providerView: Extract<ProviderView, { id: "gemini" }>,
-): TuiSettingsItemDescriptor[] => [
-  ...createBaseItems(providerView),
-  {
-    choices: [],
-    currentValue: "none",
-    enabled: false,
-    id: "gemini:none",
-    indentLevel: 0,
-    kind: "readonly",
-    label: "Provider settings",
-    note: "Gemini has no provider-specific settings in this slice.",
-  },
-];
-
 const getSettingsItems = (providerView: ProviderView): TuiSettingsItemDescriptor[] => {
   if (providerView.id === "codex") {
     return createCodexItems(providerView);
@@ -232,7 +216,7 @@ const getSettingsItems = (providerView: ProviderView): TuiSettingsItemDescriptor
     return createClaudeItems(providerView);
   }
 
-  return createGeminiItems(providerView);
+  return createBaseItems(providerView);
 };
 
 const findCurrentChoiceLabel = (item: TuiSettingsItemDescriptor): string => {

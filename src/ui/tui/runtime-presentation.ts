@@ -17,7 +17,7 @@ import {
 } from "@/ui/tui/runtime-formatters.ts";
 import type { ProviderView, TuiUsageBannerViewModel } from "@/ui/tui/types.ts";
 
-const createUsageLines = (providerView: ProviderView): string[] => {
+const createUsageLines = (providerView: ProviderView, now: Date): string[] => {
   const displayMetrics = getOrderedUsageMetrics(providerView);
   const detailLines = createProviderDetailUsageLines(providerView);
 
@@ -29,7 +29,7 @@ const createUsageLines = (providerView: ProviderView): string[] => {
 
   const lines = displayMetrics.flatMap((metric, metricIndex) => {
     const previousMetric = metricIndex === 0 ? null : (displayMetrics[metricIndex - 1] ?? null);
-    const detail = describeMetric(metric, metric.detail);
+    const detail = describeMetric(metric, metric.detail, now);
     const ratioMatch = /^(\d+)(?:\.\d+)?%$/.exec(metric.value.trim());
     const ratio =
       metric.meterPercent !== undefined
@@ -108,12 +108,12 @@ const createUsageBanner = (providerView: ProviderView): TuiUsageBannerViewModel 
   };
 };
 
-const createDetailsLines = (providerView: ProviderView): string[] => {
+const createDetailsLines = (providerView: ProviderView, now: Date): string[] => {
   const rows: [string, string][] = [
     ["state", humanizeValue(providerView.status.state)],
     ["source", humanizeValue(providerView.status.sourceLabel ?? "unknown")],
     ["version", providerView.status.version ?? "unknown"],
-    ["updated", formatUpdatedDisplay(providerView.status.updatedAt)],
+    ["updated", formatUpdatedDisplay(providerView.status.updatedAt, now)],
     ["account", maskEmailAddress(providerView.status.identity.accountEmail)],
     ["plan", formatNonAccountIdentityValue(providerView.status.identity.planLabel)],
   ];

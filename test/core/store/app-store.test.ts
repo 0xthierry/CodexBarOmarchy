@@ -162,6 +162,10 @@ test("initializes with the persisted config and exposes provider views", async (
   const state = await appStore.initialize();
   const codexView = appStore.getProviderView("codex");
 
+  if (codexView.id !== "codex") {
+    throw new TypeError("Expected the Codex provider view.");
+  }
+
   expect(state.config.providers.claude.enabled).toBe(false);
   expect(state.enabledProviderIds).toEqual(["codex", "gemini"]);
   expect(codexView.id).toBe("codex");
@@ -203,7 +207,7 @@ test("exposes the claude provider screen settings and recovery action", async ()
   expect(resolvedClaudeView.settings.tokenAccounts).toEqual([]);
 });
 
-test("exposes the gemini provider screen shared actions without provider-specific settings", async () => {
+test("exposes the gemini provider screen shared actions without a settings payload", async () => {
   const appStore = await createInitializedAppStore();
   const resolvedGeminiView = appStore.getProviderView("gemini");
 
@@ -212,7 +216,7 @@ test("exposes the gemini provider screen shared actions without provider-specifi
   }
 
   expectProviderActions(resolvedGeminiView.actions, false, false);
-  expect(resolvedGeminiView.settings).toEqual({});
+  expect("settings" in resolvedGeminiView).toBe(false);
 });
 
 test("updates runtime state immediately and persists provider enablement changes", async () => {

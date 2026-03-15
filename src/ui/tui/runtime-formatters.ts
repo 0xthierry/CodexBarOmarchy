@@ -123,13 +123,12 @@ const formatProviderHealthLabel = (value: ProviderView["status"]["serviceStatus"
 const describeMetric = (
   metric: { kind?: ProviderMetricKind; label: string },
   detail: string | null,
+  now: Date = new Date(),
 ): string | null => {
   if (typeof detail === "string" && detail.trim() !== "") {
     const parsed = parseIsoDate(detail);
 
     if (parsed !== null) {
-      const now = new Date();
-
       if (isSameLocalDate(parsed, now)) {
         return `Resets today ${formatShortTime(parsed)}`;
       }
@@ -165,7 +164,7 @@ const describeMetric = (
   return null;
 };
 
-const formatUpdatedDisplay = (value: string | null): string => {
+const formatUpdatedDisplay = (value: string | null, now: Date = new Date()): string => {
   if (typeof value !== "string" || value.trim() === "") {
     return "Never refreshed";
   }
@@ -175,8 +174,6 @@ const formatUpdatedDisplay = (value: string | null): string => {
   if (parsed === null) {
     return value;
   }
-
-  const now = new Date();
 
   if (isSameLocalDate(parsed, now)) {
     return `Today ${formatTimestamp(parsed)}`;

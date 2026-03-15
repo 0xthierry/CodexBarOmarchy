@@ -89,7 +89,7 @@ const createTuiViewModel = (
 
   return {
     configLines: createConfigLines(selectedProvider),
-    detailsLines: createDetailsLines(selectedProvider),
+    detailsLines: createDetailsLines(selectedProvider, now),
     footer: createFooter(state, localState),
     headerLines: createHeaderLines(selectedProvider, now),
     menuLines: createMenuLines(selectedProvider.id),
@@ -97,7 +97,7 @@ const createTuiViewModel = (
     tabs: createTabs(state, localState),
     title: appTitle,
     usageBanner: createUsageBanner(selectedProvider),
-    usageLines: createUsageLines(selectedProvider),
+    usageLines: createUsageLines(selectedProvider, now),
   };
 };
 
