@@ -3,20 +3,22 @@ import { createTuiController } from "@/ui/tui/controller.ts";
 import { mountOpenTuiApp } from "@/ui/tui/opentui-app.ts";
 import { createTuiViewModel } from "@/ui/tui/presenter.ts";
 import { renderTuiSnapshot } from "@/ui/tui/snapshot.ts";
+import { startStartupRefresh } from "@/ui/tui/startup-refresh.ts";
 import { loadActiveOmarchyTheme } from "@/ui/tui/theme.ts";
 import { createHeadlessAppRuntime } from "@/runtime/app-runtime.ts";
 
 const runProductionTui = async (): Promise<void> => {
   const runtime = createHeadlessAppRuntime();
+  let startupRefresh: ReturnType<typeof startStartupRefresh> | null = null;
 
   try {
     await runtime.start();
-    await runtime.appStore.refreshEnabledProviders();
-    const controller = createTuiController({
-      appStore: runtime.appStore,
-    });
 
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      await runtime.appStore.refreshEnabledProviders();
+      const controller = createTuiController({
+        appStore: runtime.appStore,
+      });
       const snapshot = controller.getSnapshot();
       const viewModel = createTuiViewModel(snapshot.state, snapshot.localState);
 
@@ -26,6 +28,10 @@ const runProductionTui = async (): Promise<void> => {
       return;
     }
 
+    const controller = createTuiController({
+      appStore: runtime.appStore,
+    });
+    startupRefresh = startStartupRefresh(runtime.appStore);
     const theme = await loadActiveOmarchyTheme();
     const renderer = await createCliRenderer({
       autoFocus: true,
@@ -41,6 +47,7 @@ const runProductionTui = async (): Promise<void> => {
     });
 
     const cleanup = (): void => {
+      startupRefresh?.abort();
       mountedApp.destroy();
       controller.destroy();
       renderer.destroy();
@@ -66,6 +73,7 @@ const runProductionTui = async (): Promise<void> => {
       // Keep the renderer alive until the process exits.
     });
   } finally {
+    startupRefresh?.abort();
     await Promise.resolve();
   }
 };
