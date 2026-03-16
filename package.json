@@ -2,7 +2,7 @@
   "name": "agent-stats-omarchy",
   "private": true,
   "type": "module",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "scripts": {
     "prepare": "lefthook install",
     "build": "bun run typecheck",
